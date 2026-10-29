@@ -1,0 +1,27 @@
+{
+  "name": "discord-bot-base",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Base modular de un bot de Discord en TypeScript",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "check": "tsc --noEmit",
+    "deploy:commands": "tsx src/deploy-commands.ts",
+    "deploy:commands:prod": "node dist/deploy-commands.js"
+  },
+  "dependencies": {
+    "discord.js": "14.27.0",
+    "dotenv": "^16.6.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "~5.9.3"
+  }
+}
