@@ -40,6 +40,8 @@ const statusEl = document.querySelector('#status');
         document.querySelector('#sidebar-status').textContent = 'Bot desconectado';
       }
     }
+    refreshStatus();
+    setInterval(refreshStatus, 15000);
     async function loadSettings() {
       const { settings } = await api('/api/settings');
       document.querySelector('#activity-text').value = settings.activityText;
@@ -269,7 +271,6 @@ const statusEl = document.querySelector('#status');
       refreshEmbedPreview();
     }
     document.querySelector('#reaction-role-add-option').addEventListener('click', addReactionRoleOption);
-    addReactionRoleOption();
 
     const editor = document.querySelector('#reaction-role-description');
     const previewTitle = document.querySelector('#reaction-role-preview-title');
@@ -309,6 +310,7 @@ const statusEl = document.querySelector('#status');
       const start = editor.selectionStart; const end = editor.selectionEnd; const selected = editor.value.slice(start, end) || 'texto';
       editor.setRangeText(`${before}${selected}${after}`, start, end, 'select'); editor.focus(); editor.dispatchEvent(new Event('input'));
     }));
+    addReactionRoleOption();
     refreshEmbedPreview();
     async function loadReactionRoles() {
       const message = document.querySelector('#reaction-role-list-message');
@@ -402,6 +404,5 @@ const statusEl = document.querySelector('#status');
       finally { button.disabled = false; }
     });
     document.querySelector('#logout').addEventListener('click', async () => { await fetch('/api/logout', { method: 'POST' }); location.href = '/login'; });
-    refreshStatus(); loadSession(); loadSettings().catch((error) => { document.querySelector('#save-message').textContent = error.message; });
+    loadSession(); loadSettings().catch((error) => { document.querySelector('#save-message').textContent = error.message; });
     loadBirthdays();
-    setInterval(refreshStatus, 15000);
