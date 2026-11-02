@@ -90,6 +90,15 @@ export function validateBirthdayColor(color: string): boolean {
   return /^#[0-9A-Fa-f]{6}$/.test(color);
 }
 
+export function formatBirthdayRoleName(emoji: string, roleName: string): string {
+  let result = '';
+  for (const character of `${emoji.trim()} - ${roleName.trim()}`) {
+    if (result.length + character.length > 100) break;
+    result += character;
+  }
+  return result;
+}
+
 export async function activateDueBirthdays(client: Client, pool: Pool): Promise<void> {
   if (!client.isReady()) return;
   const parts = todayFormatter.formatToParts(new Date());
@@ -155,6 +164,7 @@ export async function startBirthdayTest(
   const requestId = input.requestId || randomUUID();
   const emoji = input.emoji.trim();
   const roleName = input.roleName.trim();
+  const displayRoleName = formatBirthdayRoleName(emoji, roleName);
   const color = input.color?.trim() || '#D3FF75';
   if (!validateBirthdayEmoji(emoji)) throw new Error('Indica un único emoji válido para la prueba.');
   if (!validateBirthdayColor(color)) throw new Error('Indica un color hexadecimal válido, por ejemplo #D3FF75.');
@@ -164,7 +174,8 @@ export async function startBirthdayTest(
   console.info(`[birthday-test:${requestId}] start guild=${guild.id} user=${input.userId}`);
   const member = await timedBirthdayTestStep(requestId, 'fetch-member', () => guild.members.fetch(input.userId));
   const role = await timedBirthdayTestStep(requestId, 'create-role', () => guild.roles.create({
-    name: roleName,
+    name: displayRoleName,
+    hoist: true,
     color: color as ColorResolvable,
     permissions: [PermissionFlagsBits.MuteMembers, PermissionFlagsBits.DeafenMembers, PermissionFlagsBits.MoveMembers],
     reason: `Prueba de cumpleaños solicitada desde el panel para ${member.user.tag}`,
@@ -257,7 +268,8 @@ async function activateBirthday(guild: Guild, birthday: Birthday, date: string, 
     : undefined;
   if (!role) {
     role = await guild.roles.create({
-      name: birthday.role_name,
+      name: formatBirthdayRoleName(birthday.emoji, birthday.role_name),
+      hoist: true,
       color: birthday.color as ColorResolvable,
       permissions: [PermissionFlagsBits.MuteMembers, PermissionFlagsBits.DeafenMembers, PermissionFlagsBits.MoveMembers],
       reason: `Rol temporal de cumpleaños para ${member.user.tag}`,
@@ -267,9 +279,11 @@ async function activateBirthday(guild: Guild, birthday: Birthday, date: string, 
       [birthday.guild_id, birthday.user_id, role.id],
     );
   }
-  if (role.name !== birthday.role_name) {
-    await role.setName(birthday.role_name, `Nombre elegido por ${member.user.tag} para su rol de cumpleaños`);
+  const displayRoleName = formatBirthdayRoleName(birthday.emoji, birthday.role_name);
+  if (role.name !== displayRoleName) {
+    await role.setName(displayRoleName, `Nombre elegido por ${member.user.tag} para su rol de cumpleaños`);
   }
+  if (!role.hoist) await role.setHoist(true, 'Mostrar el rol de cumpleaños separado en la lista de miembros');
   if (role.hexColor.toUpperCase() !== birthday.color.toUpperCase()) {
     await role.setColor(birthday.color as ColorResolvable, `Color elegido por ${member.user.tag} para su rol de cumpleaños`);
   }
@@ -351,7 +365,9 @@ export async function updateBirthdayRegistration(
   for (const event of active.rows) {
     const role = await guild.roles.fetch(event.role_id).catch(() => null);
     if (!role) continue;
-    if (role.name !== roleName) await role.setName(roleName, 'Actualización del registro de cumpleaños desde el panel');
+    const displayRoleName = formatBirthdayRoleName(emoji, roleName);
+    if (role.name !== displayRoleName) await role.setName(displayRoleName, 'Actualización del registro de cumpleaños desde el panel');
+    if (!role.hoist) await role.setHoist(true, 'Mostrar el rol de cumpleaños separado en la lista de miembros');
     if (role.hexColor.toUpperCase() !== color) await role.setColor(color as ColorResolvable, 'Actualización del color desde el panel');
   }
   if (active.rowCount) {

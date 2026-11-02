@@ -1,6 +1,6 @@
 import { SlashCommandBuilder } from 'discord.js';
 import type { Command } from './types.js';
-import { removeBirthdayRegistration, validateBirthdayColor, validateBirthdayEmoji } from '../birthdays.js';
+import { formatBirthdayRoleName, removeBirthdayRegistration, validateBirthdayColor, validateBirthdayEmoji } from '../birthdays.js';
 
 export const cumple: Command = {
     data: new SlashCommandBuilder()
@@ -59,7 +59,7 @@ export const cumple: Command = {
           [guildId, userId, month, day, emoji, roleName, color],
         );
         await interaction.reply({
-          content: `Cumpleaños registrado para el ${day}/${month}. Usaré ${emoji} y crearé el rol **${roleName}** con color **${color}** durante 24 horas.`,
+          content: `Cumpleaños registrado para el ${day}/${month}. Crearé el rol **${formatBirthdayRoleName(emoji, roleName)}** con color **${color}** durante 24 horas.`,
           ephemeral: true,
         });
         return;
@@ -73,7 +73,7 @@ export const cumple: Command = {
         const birthday = result.rows[0];
         await interaction.reply({
           content: birthday
-            ? `Tienes registrado el ${birthday.day}/${birthday.month}, con ${birthday.emoji}, el rol **${birthday.role_name}** y el color **${birthday.color}**.`
+            ? `Tienes registrado el ${birthday.day}/${birthday.month}, con el rol **${formatBirthdayRoleName(birthday.emoji, birthday.role_name)}**, color **${birthday.color}**.`
             : 'Todavía no has registrado tu cumpleaños. Usa `/cumple registrar`.',
           ephemeral: true,
         });

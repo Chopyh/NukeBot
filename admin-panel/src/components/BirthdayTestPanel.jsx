@@ -374,7 +374,7 @@ export default function BirthdayTestPanel() {
                   <div className="flex min-w-0 items-center gap-3">
                     <span className="grid size-10 shrink-0 place-items-center rounded-full bg-primary/10 text-lg">{test.emoji}</span>
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-foreground">{test.role_name}</p>
+                      <p className="truncate text-sm font-semibold text-foreground">{test.emoji} - {test.role_name}</p>
                       <p className="mt-1 truncate text-xs text-muted-foreground">Usuario {test.user_id} · termina {new Date(test.ends_at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</p>
                     </div>
                   </div>

@@ -138,7 +138,7 @@ const statusEl = document.querySelector('#status');
           const dateCell = document.createElement('td'); dateCell.className = 'table-date';
           dateCell.textContent = `${String(birthday.day).padStart(2, '0')}/${String(birthday.month).padStart(2, '0')}`; row.append(dateCell);
           const emojiCell = document.createElement('td'); emojiCell.className = 'table-emoji'; emojiCell.textContent = birthday.emoji; row.append(emojiCell);
-          const roleCell = document.createElement('td'); roleCell.className = 'table-role'; roleCell.textContent = birthday.role_name; row.append(roleCell);
+          const roleCell = document.createElement('td'); roleCell.className = 'table-role'; roleCell.textContent = `${birthday.emoji} - ${birthday.role_name}`; row.append(roleCell);
           const colorCell = document.createElement('td');
           const color = /^#[0-9a-f]{6}$/i.test(birthday.color ?? '') ? birthday.color : '#D3FF75';
           const colorLabel = document.createElement('span'); colorLabel.className = 'birthday-color';
