@@ -1,0 +1,25 @@
+<section class="birthday-section" aria-labelledby="birthday-table-title">
+  <div class="section-head">
+    <div>
+      <h2 id="birthday-table-title" class="section-title">Registros</h2>
+      <p class="section-note">Fechas, emojis y roles elegidos por los usuarios.</p>
+    </div>
+    <span id="birthday-count" class="section-note"></span>
+  </div>
+  <div class="table-wrap">
+    <table class="flat-table">
+      <thead>
+        <tr>
+          <th scope="col">Servidor</th>
+          <th scope="col">Usuario</th>
+          <th scope="col">Fecha</th>
+          <th scope="col">Emoji</th>
+          <th scope="col">Rol de cumpleaños</th>
+          <th scope="col">Estado</th>
+        </tr>
+      </thead>
+      <tbody id="birthday-rows"></tbody>
+    </table>
+  </div>
+  <p id="birthday-message" class="message" role="status" aria-live="polite">Cargando cumpleaños…</p>
+</section>

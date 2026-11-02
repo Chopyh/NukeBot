@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -7,8 +7,9 @@ import path from 'node:path';
 import pg from 'pg';
 
 const port = Number(process.env.PORT ?? 3000);
-const username = required('ADMIN_USERNAME');
-const password = required('ADMIN_PASSWORD');
+const discordClientId = required('DISCORD_CLIENT_ID');
+const discordClientSecret = required('DISCORD_CLIENT_SECRET');
+const discordRedirectUri = required('DISCORD_REDIRECT_URI');
 const botApiUrl = (process.env.BOT_API_URL ?? 'http://bot:3001').replace(/\/$/, '');
 const botApiToken = required('ADMIN_API_TOKEN');
 const databaseUrl = required('DATABASE_URL');
@@ -19,6 +20,7 @@ const loginPagePath = path.join(staticRoot, 'login', 'index.html');
 const defaults = { activityText: '', activityType: 'playing', presenceStatus: 'online' };
 const sessionDurationMs = 12 * 60 * 60 * 1000;
 const sessions = new Map();
+const oauthStates = new Map();
 
 function required(name) {
   const value = process.env[name]?.trim();
@@ -26,30 +28,71 @@ function required(name) {
   return value;
 }
 
-function equalSecret(candidate, expected) {
-  const digest = (value) => createHash('sha256').update(value).digest();
-  return timingSafeEqual(digest(candidate), digest(expected));
+function cookieToken(request) {
+  return cookieValue(request, 'nuke_admin_session');
 }
 
-function cookieToken(request) {
+function cookieValue(request, name) {
   const cookieHeader = request.headers.cookie ?? '';
   for (const cookie of cookieHeader.split(';')) {
     const [key, ...value] = cookie.trim().split('=');
-    if (key === 'nuke_admin_session') return value.join('=');
+    if (key === name) return value.join('=');
   }
   return null;
 }
 
-function authorized(request) {
+function getSession(request) {
   const token = cookieToken(request);
-  if (!token) return false;
+  if (!token) return null;
   const session = sessions.get(token);
   if (!session || session.expiresAt <= Date.now()) {
     sessions.delete(token);
-    return false;
+    return null;
   }
   session.expiresAt = Date.now() + sessionDurationMs;
+  return session;
+}
+
+async function authorized(request) {
+  const session = getSession(request);
+  if (!session) return false;
+  if (Date.now() - session.authorizationCheckedAt < 5 * 60 * 1000) return true;
+  let stillAuthorized = false;
+  try {
+    stillAuthorized = await isGodMember(session.user.id);
+  } catch (error) {
+    console.error('No se pudo renovar la autorización del panel:', error);
+  }
+  if (!stillAuthorized) {
+    sessions.delete(cookieToken(request));
+    return false;
+  }
+  session.authorizationCheckedAt = Date.now();
   return true;
+}
+
+function setSessionCookie(request, response, token) {
+  const secure = request.socket.encrypted || request.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
+  response.setHeader('set-cookie', `nuke_admin_session=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${sessionDurationMs / 1000}${secure}`);
+}
+
+function clearSessionCookie(request, response) {
+  const secure = request.socket.encrypted || request.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
+  response.setHeader('set-cookie', `nuke_admin_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${secure}`);
+}
+
+function redirect(response, location) {
+  response.writeHead(302, { location, 'cache-control': 'no-store' }).end();
+}
+
+async function isGodMember(userId) {
+  const result = await fetch(`${botApiUrl}/api/admin/authorization/${encodeURIComponent(userId)}`, {
+    headers: { authorization: `Bearer ${botApiToken}` },
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!result.ok) return false;
+  const body = await result.json();
+  return body.authorized === true;
 }
 
 async function readJson(request, maxBytes = 4096) {
@@ -81,28 +124,82 @@ const server = createServer(async (request, response) => {
   }
 
   if (request.method === 'GET' && url.pathname === '/api/session') {
-    sendJson(response, 200, { authenticated: authorized(request) });
+    const session = getSession(request);
+    sendJson(response, 200, { authenticated: Boolean(session), user: session?.user ?? null });
     return;
   }
 
-  if (request.method === 'POST' && url.pathname === '/api/login') {
+  if (request.method === 'GET' && url.pathname === '/auth/discord') {
+    const state = randomBytes(32).toString('base64url');
+    for (const [pendingState, expiresAt] of oauthStates) {
+      if (expiresAt <= Date.now()) oauthStates.delete(pendingState);
+    }
+    oauthStates.set(state, Date.now() + 10 * 60 * 1000);
+    const secure = request.socket.encrypted || request.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
+    response.setHeader('set-cookie', `nuke_oauth_state=${state}; HttpOnly; SameSite=Lax; Path=/auth/discord/callback; Max-Age=600${secure}`);
+    const authorizeUrl = new URL('https://discord.com/oauth2/authorize');
+    authorizeUrl.searchParams.set('response_type', 'code');
+    authorizeUrl.searchParams.set('client_id', discordClientId);
+    authorizeUrl.searchParams.set('scope', 'identify');
+    authorizeUrl.searchParams.set('state', state);
+    authorizeUrl.searchParams.set('redirect_uri', discordRedirectUri);
+    redirect(response, authorizeUrl.toString());
+    return;
+  }
+
+  if (request.method === 'GET' && url.pathname === '/auth/discord/callback') {
     try {
-      const input = await readJson(request);
-      if (!input || typeof input.username !== 'string' || typeof input.password !== 'string' ||
-          !equalSecret(input.username, username) || !equalSecret(input.password, password)) {
-        sendJson(response, 401, { error: 'El usuario o la contraseña no son correctos.' });
+      const state = url.searchParams.get('state') ?? '';
+      const stateExpiresAt = oauthStates.get(state);
+      oauthStates.delete(state);
+      if (!stateExpiresAt || stateExpiresAt <= Date.now() || cookieValue(request, 'nuke_oauth_state') !== state ||
+          (url.searchParams.has('iss') && url.searchParams.get('iss') !== 'https://discord.com')) {
+        redirect(response, '/login?error=invalid_oauth');
         return;
       }
+
+      const code = url.searchParams.get('code');
+      if (!code || url.searchParams.has('error')) {
+        redirect(response, '/login?error=discord_denied');
+        return;
+      }
+
+      const tokenResponse = await fetch('https://discord.com/api/v10/oauth2/token', {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          client_id: discordClientId,
+          client_secret: discordClientSecret,
+          grant_type: 'authorization_code',
+          code,
+          redirect_uri: discordRedirectUri,
+        }),
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!tokenResponse.ok) throw new Error('Discord rechazó el intercambio de código OAuth.');
+      const tokenData = await tokenResponse.json();
+      const identityResponse = await fetch('https://discord.com/api/v10/users/@me', {
+        headers: { authorization: 'Bearer ' + tokenData.access_token },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!identityResponse.ok) throw new Error('No se pudo consultar la cuenta de Discord.');
+      const user = await identityResponse.json();
+      if (!/^\d{17,20}$/.test(user.id) || !(await isGodMember(user.id))) {
+        redirect(response, '/login?error=forbidden');
+        return;
+      }
+
       const token = randomBytes(32).toString('base64url');
-      sessions.set(token, { expiresAt: Date.now() + sessionDurationMs });
-      const secure = request.socket.encrypted || request.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
-      sendJson(response, 200, { ok: true }, {
-        'set-cookie': `nuke_admin_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${sessionDurationMs / 1000}${secure}`,
+      sessions.set(token, {
+        expiresAt: Date.now() + sessionDurationMs,
+        authorizationCheckedAt: Date.now(),
+        user: { id: user.id, username: user.username, globalName: user.global_name ?? user.username, avatar: user.avatar },
       });
+      setSessionCookie(request, response, token);
+      redirect(response, '/');
     } catch (error) {
-      sendJson(response, error instanceof RangeError ? 413 : 400, {
-        error: error instanceof RangeError ? error.message : 'La solicitud de acceso no es válida.',
-      });
+      console.error('No se pudo completar el inicio de sesión de Discord:', error);
+      redirect(response, '/login?error=oauth');
     }
     return;
   }
@@ -110,13 +207,10 @@ const server = createServer(async (request, response) => {
   if (request.method === 'POST' && url.pathname === '/api/logout') {
     const token = cookieToken(request);
     if (token) sessions.delete(token);
-    const secure = request.socket.encrypted || request.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
-    sendJson(response, 200, { ok: true }, {
-      'set-cookie': `nuke_admin_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${secure}`,
-    });
+    clearSessionCookie(request, response);
+    sendJson(response, 200, { ok: true });
     return;
   }
-
   if (request.method === 'GET' && url.pathname.startsWith('/_astro/')) {
     try {
       const relativePath = decodeURIComponent(url.pathname).replace(/^\/+/, '');
@@ -146,7 +240,7 @@ const server = createServer(async (request, response) => {
   }
 
   if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '/login')) {
-    const loggedIn = authorized(request);
+    const loggedIn = await authorized(request);
     if (url.pathname === '/' && !loggedIn) {
       response.writeHead(302, { location: '/login', 'cache-control': 'no-store' }).end();
       return;
@@ -171,7 +265,7 @@ const server = createServer(async (request, response) => {
     return;
   }
 
-  if (!authorized(request)) {
+  if (!(await authorized(request))) {
     if (url.pathname.startsWith('/api/')) sendJson(response, 401, { error: 'Inicia sesión para continuar.' });
     else response.writeHead(302, { location: '/login', 'cache-control': 'no-store' }).end();
     return;
@@ -179,6 +273,7 @@ const server = createServer(async (request, response) => {
 
   const botProxyPath = url.pathname.startsWith('/api/bot/') ? url.pathname.slice('/api/bot'.length) : '';
   const allowedBotRoute = botProxyPath === '/guilds'
+    || botProxyPath === '/birthdays'
     || /^\/guilds\/\d{17,20}\/members$/.test(botProxyPath)
     || botProxyPath === '/birthday-tests'
     || /^\/guilds\/\d{17,20}\/birthday-tests\/[0-9a-f-]{36}$/i.test(botProxyPath);

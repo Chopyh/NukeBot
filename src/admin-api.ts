@@ -68,6 +68,73 @@ export function startAdminApi(client: Client, pool: Pool): void {
       return;
     }
 
+    const authorizationMatch = /^\/api\/admin\/authorization\/(\d{17,20})$/.exec(url.pathname);
+    if (request.method === 'GET' && authorizationMatch) {
+      const guildId = process.env.DISCORD_GUILD_ID?.trim();
+      if (!guildId) {
+        sendJson(response, 503, { error: 'No está configurado el servidor principal del bot.' });
+        return;
+      }
+      try {
+        const guild = await client.guilds.fetch(guildId);
+        const [member] = await Promise.all([
+          guild.members.fetch(authorizationMatch[1]!).catch(() => null),
+          guild.roles.fetch(),
+        ]);
+        const godRole = guild.roles.cache.find((role) => role.name.toLocaleLowerCase() === 'dios');
+        sendJson(response, 200, { authorized: Boolean(member && godRole && member.roles.cache.has(godRole.id)) });
+      } catch (error) {
+        console.error('No se pudo verificar el rol Dios para el acceso web:', error);
+        sendJson(response, 503, { error: 'No se pudo verificar el acceso en el servidor principal.' });
+      }
+      return;
+    }
+
+    if (request.method === 'GET' && url.pathname === '/api/admin/birthdays') {
+      try {
+        const result = await pool.query(`
+          SELECT
+            registration.guild_id,
+            registration.user_id,
+            registration.day,
+            registration.month,
+            registration.emoji,
+            registration.role_name,
+            active.ends_at
+          FROM birthday_registrations AS registration
+          LEFT JOIN LATERAL (
+            SELECT event.ends_at
+            FROM birthday_events AS event
+            WHERE event.guild_id = registration.guild_id
+              AND event.user_id = registration.user_id
+              AND event.ends_at > NOW()
+            ORDER BY event.ends_at DESC
+            LIMIT 1
+          ) AS active ON TRUE
+          ORDER BY registration.month, registration.day, registration.guild_id, registration.user_id
+        `);
+
+        const birthdays = await Promise.all(result.rows.map(async (birthday) => {
+          const guild = client.guilds.cache.get(birthday.guild_id);
+          if (!guild) return { ...birthday, guild_name: birthday.guild_id, display_name: 'Servidor no disponible', username: null, avatar: null };
+          const member = guild.members.cache.get(birthday.user_id)
+            ?? await guild.members.fetch(birthday.user_id).catch(() => null);
+          return {
+            ...birthday,
+            guild_name: guild.name,
+            display_name: member?.displayName ?? 'Miembro no disponible',
+            username: member?.user.username ?? null,
+            avatar: member?.user.displayAvatarURL({ size: 64 }) ?? null,
+          };
+        }));
+        sendJson(response, 200, { birthdays });
+      } catch (error) {
+        console.error('No se pudieron consultar los cumpleaños:', error);
+        sendJson(response, 503, { error: 'No se pudieron consultar los cumpleaños registrados.' });
+      }
+      return;
+    }
+
     const membersMatch = /^\/api\/admin\/guilds\/(\d{17,20})\/members$/.exec(url.pathname);
     if (request.method === 'GET' && membersMatch) {
       const query = url.searchParams.get('q')?.trim() ?? '';
