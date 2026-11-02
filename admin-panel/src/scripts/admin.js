@@ -1,7 +1,4 @@
 const statusEl = document.querySelector('#status');
-    const birthdayCache = [];
-    let selectedMember = null;
-    let searchTimer;
     const pageNames = { overview: 'Resumen', birthdays: 'Cumpleaños', settings: 'Configuración' };
     const formatDuration = (seconds) => {
       const days = Math.floor(seconds / 86400); seconds %= 86400;
@@ -53,12 +50,6 @@ const statusEl = document.querySelector('#status');
       const { user } = await api('/api/session');
       if (user) document.querySelector('#session-name').textContent = `@${user.username}`;
     }
-    function addCell(row, value, code = false) {
-      const cell = document.createElement('td');
-      if (code) { const element = document.createElement('code'); element.textContent = value; cell.append(element); }
-      else cell.textContent = value;
-      row.append(cell);
-    }
     function addIdentityCell(row, { name, detail, avatar, fallback }) {
       const cell = document.createElement('td');
       const identity = document.createElement('div'); identity.className = 'table-identity';
@@ -82,7 +73,6 @@ const statusEl = document.querySelector('#status');
       rows.replaceChildren();
       try {
         const { birthdays } = await api('/api/bot/birthdays');
-        birthdayCache.splice(0, birthdayCache.length, ...birthdays);
         for (const birthday of birthdays) {
           const row = document.createElement('tr');
           addIdentityCell(row, { name: birthday.guild_name, detail: `ID ${birthday.guild_id}`, fallback: 'D' });
@@ -108,87 +98,7 @@ const statusEl = document.querySelector('#status');
         overview.textContent = birthdays.length ? `${birthdays.length} cumpleaños registrados en ${new Set(birthdays.map((item) => item.guild_id)).size} servidor(es).` : 'Todavía no hay cumpleaños registrados.';
       } catch (error) { message.textContent = error.message; message.classList.add('error'); }
     }
-    async function loadGuilds() {
-      const select = document.querySelector('#test-guild');
-      const guilds = await api('/api/bot/guilds');
-      select.replaceChildren(new Option('Selecciona un servidor', ''));
-      for (const guild of guilds) select.add(new Option(`${guild.name} · ${guild.memberCount}`, guild.id));
-      if (guilds.length === 1) { select.value = guilds[0].id; await loadActiveTests(); }
-    }
-    async function searchMembers() {
-      const guildId = document.querySelector('#test-guild').value;
-      const query = document.querySelector('#member-query').value.trim();
-      const results = document.querySelector('#member-results');
-      selectedMember = null;
-      document.querySelector('#selected-member').textContent = 'Ningún usuario seleccionado';
-      document.querySelector('#start-test').disabled = true;
-      if (!guildId || query.length < 2) { results.replaceChildren(new Option('Elige servidor y escribe al menos dos caracteres', '')); return; }
-      results.replaceChildren(new Option('Buscando…', ''));
-      try {
-        const members = await api(`/api/bot/guilds/${guildId}/members?q=${encodeURIComponent(query)}`);
-        results.replaceChildren();
-        if (!members.length) { results.add(new Option('No se encontraron miembros', '')); return; }
-        window.memberResults = new Map(members.map((member) => [member.id, member]));
-        for (const member of members) results.add(new Option(`${member.displayName}  ·  @${member.username}  ·  ${member.id}`, member.id));
-      } catch (error) { results.replaceChildren(new Option(error.message, '')); }
-    }
-    document.querySelector('#member-query').addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(searchMembers, 300); });
-    document.querySelector('#test-guild').addEventListener('change', () => { searchMembers(); loadActiveTests(); });
-    document.querySelector('#member-results').addEventListener('change', (event) => {
-      selectedMember = window.memberResults?.get(event.target.value) ?? null;
-      const summary = document.querySelector('#selected-member');
-      summary.replaceChildren();
-      if (!selectedMember) { summary.textContent = 'Ningún usuario seleccionado'; document.querySelector('#start-test').disabled = true; return; }
-      if (selectedMember.avatar) { const avatar = document.createElement('img'); avatar.src = selectedMember.avatar; avatar.alt = ''; avatar.className = 'member-avatar'; summary.append(avatar); }
-      const name = document.createElement('span');
-      name.textContent = `${selectedMember.displayName} · @${selectedMember.username} · ${selectedMember.id}`;
-      summary.append(name);
-      const saved = birthdayCache.find((birthday) => birthday.guild_id === document.querySelector('#test-guild').value && birthday.user_id === selectedMember.id);
-      document.querySelector('#test-emoji').value = saved?.emoji ?? '🎂';
-      document.querySelector('#test-role').value = saved?.role_name ?? `Cumpleañero ${selectedMember.displayName}`;
-      document.querySelector('#start-test').disabled = false;
-    });
-    async function loadActiveTests() {
-      const list = document.querySelector('#active-tests');
-      try {
-        const tests = await api('/api/bot/birthday-tests');
-        const guildId = document.querySelector('#test-guild').value;
-        const visible = tests.filter((test) => !guildId || test.guild_id === guildId);
-        list.replaceChildren();
-        if (!visible.length) { const empty = document.createElement('p'); empty.className = 'empty'; empty.textContent = 'No hay pruebas activas.'; list.append(empty); return; }
-        for (const test of visible) {
-          const row = document.createElement('div'); row.className = 'test-row';
-          const info = document.createElement('div');
-          const user = document.createElement('div'); user.className = 'test-user'; user.textContent = `${test.emoji} ${test.role_name}`;
-          const detail = document.createElement('div'); detail.className = 'test-detail'; detail.textContent = `Usuario ${test.user_id} · termina ${new Date(test.ends_at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}`;
-          info.append(user, detail);
-          const cancel = document.createElement('button'); cancel.className = 'button danger'; cancel.textContent = 'Cancelar y restaurar';
-          cancel.addEventListener('click', async () => {
-            cancel.disabled = true;
-            try { await api(`/api/bot/guilds/${test.guild_id}/birthday-tests/${test.test_id}`, { method: 'DELETE' }); await loadActiveTests(); await loadBirthdays(); }
-            catch (error) { cancel.disabled = false; document.querySelector('#test-message').textContent = error.message; document.querySelector('#test-message').classList.add('error'); }
-          });
-          row.append(info, cancel); list.append(row);
-        }
-      } catch (error) { list.textContent = error.message; }
-    }
-    document.querySelector('#start-test').addEventListener('click', async () => {
-      const button = document.querySelector('#start-test');
-      const message = document.querySelector('#test-message');
-      button.disabled = true; message.textContent = 'Aplicando cambios temporales…'; message.className = 'message';
-      try {
-        await api('/api/bot/birthday-tests', { method: 'POST', body: JSON.stringify({
-          guildId: document.querySelector('#test-guild').value,
-          userId: selectedMember.id,
-          emoji: document.querySelector('#test-emoji').value,
-          roleName: document.querySelector('#test-role').value,
-        }) });
-        message.textContent = 'Prueba iniciada. Cancélala para restaurar los cambios al instante.'; message.classList.add('success');
-        await loadActiveTests();
-      } catch (error) { message.textContent = error.message; message.classList.add('error'); }
-      finally { button.disabled = !selectedMember; }
-    });
-    document.querySelector('#refresh-birthdays').addEventListener('click', () => { loadBirthdays(); loadActiveTests(); });
+    document.querySelector('#refresh-birthdays').addEventListener('click', () => { loadBirthdays(); window.dispatchEvent(new Event('birthday-tests-refresh')); });
     document.querySelector('#settings-form').addEventListener('submit', async (event) => {
       event.preventDefault();
       const button = document.querySelector('#save-button'); const message = document.querySelector('#save-message');
@@ -205,5 +115,5 @@ const statusEl = document.querySelector('#status');
     });
     document.querySelector('#logout').addEventListener('click', async () => { await fetch('/api/logout', { method: 'POST' }); location.href = '/login'; });
     refreshStatus(); loadSession(); loadSettings().catch((error) => { document.querySelector('#save-message').textContent = error.message; });
-    loadBirthdays(); loadGuilds().catch((error) => { document.querySelector('#test-message').textContent = error.message; }); loadActiveTests();
+    loadBirthdays();
     setInterval(refreshStatus, 15000);

@@ -20,10 +20,6 @@ body {
   margin: 0;
 }
 
-button, input, select {
-  font: inherit;
-}
-
 button {
   cursor: pointer;
 }
@@ -434,13 +430,6 @@ h1 {
   font-size: 12px;
 }
 
-.toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: end;
-  gap: 12px;
-}
-
 .field {
   display: grid;
   min-width: 0;
@@ -450,16 +439,7 @@ h1 {
   font-size: 11px;
 }
 
-.field.small {
-  max-width: 205px;
-  flex: 1 1 165px;
-}
-
-.field.wide {
-  flex: 2 1 250px;
-}
-
-input, select {
+.settings-form input, .settings-form select {
   width: 100%;
   min-height: 36px;
   padding: 0 10px;
@@ -471,11 +451,11 @@ input, select {
   font-size: 12px;
 }
 
-input:focus, select:focus {
+.settings-form input:focus, .settings-form select:focus {
   border-color: #919b72;
 }
 
-select option {
+.settings-form select option {
   background: #17181a;
 }
 
@@ -516,21 +496,6 @@ select option {
   opacity: .45;
 }
 
-.divider {
-  height: 1px;
-  margin: 23px 0;
-  border: 0;
-  background: var(--line);
-}
-
-.form-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px;
-  max-width: 680px;
-  margin-top: 22px;
-}
-
 .message {
   min-height: 17px;
   margin: 11px 0 0;
@@ -544,51 +509,6 @@ select option {
 
 .message.success {
   color: #c9ed83;
-}
-
-.member-results {
-  max-width: 520px;
-}
-
-.member-summary {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 38px;
-  color: #c9cace;
-  font-size: 11px;
-}
-
-.member-avatar {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: #28292d;
-}
-
-.test-list {
-  margin-top: 14px;
-  border-top: 1px solid var(--line);
-}
-
-.test-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 15px;
-  padding: 13px 0;
-  border-bottom: 1px solid #222326;
-}
-
-.test-user {
-  color: #d8d8da;
-  font-size: 12px;
-}
-
-.test-detail {
-  margin-top: 4px;
-  color: #85868b;
-  font-size: 10px;
 }
 
 .settings-form {
@@ -662,14 +582,6 @@ footer {
 
   .stat:last-child {
     border-bottom: 0;
-  }
-
-  .form-row {
-    grid-template-columns: 1fr;
-  }
-
-  .field.small {
-    max-width: none;
   }
 
 }

@@ -1,12 +1,14 @@
 ---
 import '../styles/admin.css';
+import '../styles/globals.css';
 import Sidebar from '../components/Sidebar.astro';
 import Topbar from '../components/Topbar.astro';
 import PageHeading from '../components/PageHeading.astro';
 import BirthdayTable from '../components/BirthdayTable.astro';
+import BirthdayTestPanel from '../components/BirthdayTestPanel.jsx';
 ---
 <!doctype html>
-<html lang="es">
+<html lang="es" class="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -35,24 +37,7 @@ import BirthdayTable from '../components/BirthdayTable.astro';
           <PageHeading title="Cumpleaños" description="Registros y pruebas temporales de la decoración y el rol."><button id="refresh-birthdays" class="button">Actualizar</button></PageHeading>
           <BirthdayTable />
 
-          <hr class="divider">
-          <section>
-            <div class="section-head"><div><h2 class="section-title">Prueba de cumpleaños</h2><p class="section-note">Aplica el emoji a los canales y asigna el rol durante un máximo de 10 minutos.</p></div></div>
-            <div class="toolbar">
-              <label class="field small">Servidor<select id="test-guild"><option value="">Cargando servidores…</option></select></label>
-              <label class="field wide">Buscar usuario<input id="member-query" type="search" placeholder="Nombre, apodo o usuario…" autocomplete="off"></label>
-            </div>
-            <div class="form-row">
-              <label class="field">Resultados<select id="member-results" size="4" class="member-results" aria-label="Resultados de búsqueda de miembros"><option value="">Escribe para buscar miembros</option></select></label>
-              <div><div class="field">Usuario seleccionado</div><div id="selected-member" class="member-summary">Ningún usuario seleccionado</div></div>
-            </div>
-            <div class="form-row">
-              <label class="field">Emoji de prueba<input id="test-emoji" maxlength="64" value="🎂"></label>
-              <label class="field">Nombre del rol temporal<input id="test-role" maxlength="100" placeholder="Cumpleañero"></label>
-            </div>
-            <div class="actions" style="display:flex;align-items:center;gap:12px;margin-top:16px"><button id="start-test" class="button primary" disabled>Iniciar prueba</button><span id="test-message" class="message" role="status"></span></div>
-            <div class="section" style="margin-top:34px"><div class="section-head"><div><h2 class="section-title">Pruebas activas</h2><p class="section-note">Cancelar elimina el rol y restaura los nombres de canales inmediatamente.</p></div></div><div id="active-tests" class="test-list"><p class="empty">Cargando pruebas…</p></div></div>
-          </section>
+          <BirthdayTestPanel client:load />
         </section>
 
         <section id="page-settings" class="page">
