@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -15,7 +15,10 @@ const databaseUrl = required('DATABASE_URL');
 const pool = new pg.Pool({ connectionString: databaseUrl, max: 5, connectionTimeoutMillis: 5000 });
 const staticRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), 'dist');
 const pagePath = path.join(staticRoot, 'index.html');
+const loginPagePath = path.join(staticRoot, 'login', 'index.html');
 const defaults = { activityText: '', activityType: 'playing', presenceStatus: 'online' };
+const sessionDurationMs = 12 * 60 * 60 * 1000;
+const sessions = new Map();
 
 function required(name) {
   const value = process.env[name]?.trim();
@@ -28,18 +31,45 @@ function equalSecret(candidate, expected) {
   return timingSafeEqual(digest(candidate), digest(expected));
 }
 
+function cookieToken(request) {
+  const cookieHeader = request.headers.cookie ?? '';
+  for (const cookie of cookieHeader.split(';')) {
+    const [key, ...value] = cookie.trim().split('=');
+    if (key === 'nuke_admin_session') return value.join('=');
+  }
+  return null;
+}
+
 function authorized(request) {
-  const match = /^Basic\s+(.+)$/i.exec(request.headers.authorization ?? '');
-  if (!match) return false;
-  let decoded;
-  try {
-    decoded = Buffer.from(match[1], 'base64').toString('utf8');
-  } catch {
+  const token = cookieToken(request);
+  if (!token) return false;
+  const session = sessions.get(token);
+  if (!session || session.expiresAt <= Date.now()) {
+    sessions.delete(token);
     return false;
   }
-  const colon = decoded.indexOf(':');
-  if (colon < 0) return false;
-  return equalSecret(decoded.slice(0, colon), username) && equalSecret(decoded.slice(colon + 1), password);
+  session.expiresAt = Date.now() + sessionDurationMs;
+  return true;
+}
+
+async function readJson(request, maxBytes = 4096) {
+  const chunks = [];
+  let length = 0;
+  for await (const chunk of request) {
+    length += chunk.length;
+    if (length > maxBytes) throw new RangeError('Solicitud demasiado grande.');
+    chunks.push(chunk);
+  }
+  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+}
+
+function sendJson(response, status, body, headers = {}) {
+  response.writeHead(status, {
+    'content-type': 'application/json; charset=utf-8',
+    'cache-control': 'no-store',
+    ...headers,
+  });
+  response.end(JSON.stringify(body));
 }
 
 const server = createServer(async (request, response) => {
@@ -50,11 +80,40 @@ const server = createServer(async (request, response) => {
     return;
   }
 
-  if (!authorized(request)) {
-    response.writeHead(401, {
-      'www-authenticate': 'Basic realm="Administración del bot", charset="UTF-8"',
-      'cache-control': 'no-store',
-    }).end('Autenticación requerida');
+  if (request.method === 'GET' && url.pathname === '/api/session') {
+    sendJson(response, 200, { authenticated: authorized(request) });
+    return;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/login') {
+    try {
+      const input = await readJson(request);
+      if (!input || typeof input.username !== 'string' || typeof input.password !== 'string' ||
+          !equalSecret(input.username, username) || !equalSecret(input.password, password)) {
+        sendJson(response, 401, { error: 'El usuario o la contraseña no son correctos.' });
+        return;
+      }
+      const token = randomBytes(32).toString('base64url');
+      sessions.set(token, { expiresAt: Date.now() + sessionDurationMs });
+      const secure = request.socket.encrypted || request.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
+      sendJson(response, 200, { ok: true }, {
+        'set-cookie': `nuke_admin_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${sessionDurationMs / 1000}${secure}`,
+      });
+    } catch (error) {
+      sendJson(response, error instanceof RangeError ? 413 : 400, {
+        error: error instanceof RangeError ? error.message : 'La solicitud de acceso no es válida.',
+      });
+    }
+    return;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/logout') {
+    const token = cookieToken(request);
+    if (token) sessions.delete(token);
+    const secure = request.socket.encrypted || request.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
+    sendJson(response, 200, { ok: true }, {
+      'set-cookie': `nuke_admin_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${secure}`,
+    });
     return;
   }
 
@@ -86,19 +145,64 @@ const server = createServer(async (request, response) => {
     return;
   }
 
-  if (request.method === 'GET' && url.pathname === '/') {
+  if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '/login')) {
+    const loggedIn = authorized(request);
+    if (url.pathname === '/' && !loggedIn) {
+      response.writeHead(302, { location: '/login', 'cache-control': 'no-store' }).end();
+      return;
+    }
+    if (url.pathname === '/login' && loggedIn) {
+      response.writeHead(302, { location: '/', 'cache-control': 'no-store' }).end();
+      return;
+    }
     try {
-      const page = await readFile(pagePath);
+      const page = await readFile(url.pathname === '/login' ? loginPagePath : pagePath);
       response.writeHead(200, {
         'content-type': 'text/html; charset=utf-8',
         'cache-control': 'no-store',
-        'content-security-policy': "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:",
+        'content-security-policy': "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data: https://cdn.discordapp.com",
         'x-content-type-options': 'nosniff',
         'x-frame-options': 'DENY',
         'referrer-policy': 'no-referrer',
       }).end(page);
     } catch {
       response.writeHead(500).end('No se pudo cargar el panel');
+    }
+    return;
+  }
+
+  if (!authorized(request)) {
+    if (url.pathname.startsWith('/api/')) sendJson(response, 401, { error: 'Inicia sesión para continuar.' });
+    else response.writeHead(302, { location: '/login', 'cache-control': 'no-store' }).end();
+    return;
+  }
+
+  const botProxyPath = url.pathname.startsWith('/api/bot/') ? url.pathname.slice('/api/bot'.length) : '';
+  const allowedBotRoute = botProxyPath === '/guilds'
+    || /^\/guilds\/\d{17,20}\/members$/.test(botProxyPath)
+    || botProxyPath === '/birthday-tests'
+    || /^\/guilds\/\d{17,20}\/birthday-tests\/[0-9a-f-]{36}$/i.test(botProxyPath);
+  if (allowedBotRoute) {
+    try {
+      const body = ['GET', 'HEAD'].includes(request.method ?? 'GET') ? undefined : JSON.stringify(await readJson(request));
+      const upstreamUrl = `${botApiUrl}/api/admin${botProxyPath}${url.search}`;
+      const upstream = await fetch(upstreamUrl, {
+        method: request.method,
+        headers: {
+          authorization: `Bearer ${botApiToken}`,
+          ...(body ? { 'content-type': 'application/json' } : {}),
+        },
+        ...(body ? { body } : {}),
+        signal: AbortSignal.timeout(15000),
+      });
+      const content = await upstream.text();
+      response.writeHead(upstream.status, {
+        'content-type': upstream.headers.get('content-type') ?? 'application/json; charset=utf-8',
+        'cache-control': 'no-store',
+      }).end(content);
+    } catch (error) {
+      const status = error instanceof RangeError ? 413 : 503;
+      sendJson(response, status, { error: error instanceof Error ? error.message : 'No hay conexión con el bot.' });
     }
     return;
   }

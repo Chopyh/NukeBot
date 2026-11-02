@@ -7,6 +7,7 @@ import {
   type GuildBasedChannel,
   type Role,
 } from 'discord.js';
+import { randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
 
 type Birthday = {
@@ -59,6 +60,17 @@ export async function ensureBirthdayTables(pool: Pool): Promise<void> {
       PRIMARY KEY (guild_id, channel_id)
     )
   `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS birthday_test_events (
+      test_id UUID PRIMARY KEY,
+      guild_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      emoji TEXT NOT NULL,
+      role_name VARCHAR(100) NOT NULL,
+      role_id TEXT NOT NULL,
+      ends_at TIMESTAMPTZ NOT NULL
+    )
+  `);
 }
 
 export function validateBirthdayEmoji(emoji: string): boolean {
@@ -98,10 +110,94 @@ export async function activateDueBirthdays(client: Client, pool: Pool): Promise<
     if (guild) await finishBirthday(guild, event, pool);
   }
 
+  const expiredTests = await pool.query<{ test_id: string; guild_id: string; user_id: string; role_id: string }>(
+    `SELECT test_id, guild_id, user_id, role_id FROM birthday_test_events WHERE ends_at <= NOW()`,
+  );
+  for (const event of expiredTests.rows) {
+    const guild = client.guilds.cache.get(event.guild_id);
+    if (guild) {
+      await cleanupBirthdayTest(guild, pool, event).catch((error) => {
+        console.error(`No se pudo limpiar la prueba de cumpleaños ${event.test_id}:`, error);
+      });
+    }
+  }
+
   for (const guild of client.guilds.cache.values()) {
-    const active = await pool.query('SELECT 1 FROM birthday_events WHERE guild_id = $1 LIMIT 1', [guild.id]);
+    const active = await pool.query(
+      `SELECT 1 FROM birthday_events WHERE guild_id = $1
+       UNION ALL SELECT 1 FROM birthday_test_events WHERE guild_id = $1 LIMIT 1`,
+      [guild.id],
+    );
     if (active.rowCount) await refreshBirthdayChannelNames(guild, pool);
   }
+}
+
+export async function startBirthdayTest(
+  guild: Guild,
+  pool: Pool,
+  input: { userId: string; emoji: string; roleName: string },
+): Promise<{ test_id: string; guild_id: string; user_id: string; emoji: string; role_name: string; role_id: string; ends_at: Date }> {
+  const emoji = input.emoji.trim();
+  const roleName = input.roleName.trim();
+  if (!validateBirthdayEmoji(emoji)) throw new Error('Indica un único emoji válido para la prueba.');
+  if (!roleName || roleName.length > 100 || /@everyone|@here/i.test(roleName)) {
+    throw new Error('El nombre del rol de prueba no es válido.');
+  }
+  const member = await guild.members.fetch(input.userId);
+  const role = await guild.roles.create({
+    name: roleName,
+    permissions: [PermissionFlagsBits.MuteMembers, PermissionFlagsBits.DeafenMembers, PermissionFlagsBits.MoveMembers],
+    reason: `Prueba de cumpleaños solicitada desde el panel para ${member.user.tag}`,
+  });
+  try {
+    await positionBirthdayRole(guild, role, member.user.tag);
+    await member.roles.add(role, 'Prueba temporal de cumpleaños desde el panel');
+    const testId = randomUUID();
+    const endsAt = new Date(Date.now() + 10 * 60 * 1000);
+    const result = await pool.query<{ test_id: string; guild_id: string; user_id: string; emoji: string; role_name: string; role_id: string; ends_at: Date }>(
+      `INSERT INTO birthday_test_events (test_id, guild_id, user_id, emoji, role_name, role_id, ends_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING test_id, guild_id, user_id, emoji, role_name, role_id, ends_at`,
+      [testId, guild.id, member.id, emoji, roleName, role.id, endsAt],
+    );
+    await refreshBirthdayChannelNames(guild, pool);
+    return result.rows[0]!;
+  } catch (error) {
+    await role.delete('Se revirtió una prueba de cumpleaños incompleta').catch(() => undefined);
+    throw error;
+  }
+}
+
+export async function cancelBirthdayTest(guild: Guild, pool: Pool, testId: string): Promise<boolean> {
+  const result = await pool.query<{ test_id: string; guild_id: string; user_id: string; role_id: string }>(
+    'SELECT test_id, guild_id, user_id, role_id FROM birthday_test_events WHERE test_id = $1 AND guild_id = $2',
+    [testId, guild.id],
+  );
+  const event = result.rows[0];
+  if (!event) return false;
+  await cleanupBirthdayTest(guild, pool, event);
+  return true;
+}
+
+async function cleanupBirthdayTest(
+  guild: Guild,
+  pool: Pool,
+  event: { test_id: string; guild_id: string; user_id: string; role_id: string },
+): Promise<void> {
+  const role = await guild.roles.fetch(event.role_id).catch(() => null);
+  if (role) await role.delete('Fin de la prueba temporal de cumpleaños');
+  await pool.query('DELETE FROM birthday_test_events WHERE test_id = $1', [event.test_id]);
+  await refreshBirthdayChannelNames(guild, pool);
+}
+
+async function positionBirthdayRole(guild: Guild, role: Role, reason: string): Promise<void> {
+  const godRole = guild.roles.cache.find((candidate) => candidate.name.toLocaleLowerCase() === 'dios');
+  const botMember = guild.members.me ?? await guild.members.fetchMe();
+  const highestPositionBotCanManage = Math.max(1, botMember.roles.highest.position - 1);
+  const position = godRole
+    ? Math.min(Math.max(1, godRole.position - 1), highestPositionBotCanManage)
+    : highestPositionBotCanManage;
+  await role.setPosition(position, { reason });
 }
 
 async function activateBirthday(guild: Guild, birthday: Birthday, date: string, pool: Pool): Promise<void> {
@@ -132,13 +228,7 @@ async function activateBirthday(guild: Guild, birthday: Birthday, date: string, 
     await role.setName(birthday.role_name, `Nombre elegido por ${member.user.tag} para su rol de cumpleaños`);
   }
 
-  const godRole = guild.roles.cache.find((candidate) => candidate.name.toLocaleLowerCase() === 'dios');
-  const botMember = guild.members.me ?? await guild.members.fetchMe();
-  const highestPositionBotCanManage = Math.max(1, botMember.roles.highest.position - 1);
-  const position = godRole
-    ? Math.min(Math.max(1, godRole.position - 1), highestPositionBotCanManage)
-    : highestPositionBotCanManage;
-  await role.setPosition(position, { reason: `Prioridad del rol temporal de cumpleaños para ${member.user.tag}` });
+  await positionBirthdayRole(guild, role, `Prioridad del rol temporal de cumpleaños para ${member.user.tag}`);
 
   await member.roles.add(role, 'Cumpleaños: rol temporal de voz');
   const endsAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
@@ -183,7 +273,8 @@ export async function removeBirthdayRegistration(guild: Guild, pool: Pool, userI
 
 async function refreshBirthdayChannelNames(guild: Guild, pool: Pool): Promise<void> {
   const active = await pool.query<{ emoji: string }>(
-    'SELECT emoji FROM birthday_events WHERE guild_id = $1 ORDER BY user_id',
+    `SELECT emoji FROM birthday_events WHERE guild_id = $1
+     UNION SELECT emoji FROM birthday_test_events WHERE guild_id = $1`,
     [guild.id],
   );
   const emojis = [...new Set(active.rows.map((row) => row.emoji))];

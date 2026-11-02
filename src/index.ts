@@ -5,7 +5,7 @@ import { startAdminApi } from './admin-api.js';
 import { applySettings, createSettingsPool, ensureSettingsTable, readSettings } from './settings.js';
 import { ensureBirthdayTables, startBirthdayScheduler } from './birthdays.js';
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
 const settingsPool = createSettingsPool();
 await ensureSettingsTable(settingsPool).catch(async (error) => {
   await settingsPool.end();
