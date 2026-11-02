@@ -191,7 +191,9 @@ async function refreshBirthdayChannelNames(guild: Guild, pool: Pool): Promise<vo
   const eligibleChannels = channels.filter(isRenamableChannel);
 
   if (emojis.length) {
-    for (const channel of eligibleChannels.values()) {
+    for (const possibleChannel of eligibleChannels.values()) {
+      if (!isRenamableChannel(possibleChannel)) continue;
+      const channel = possibleChannel;
       const backup = await pool.query<{ original_name: string }>(
         'SELECT original_name FROM birthday_channel_backups WHERE guild_id = $1 AND channel_id = $2',
         [guild.id, channel.id],
