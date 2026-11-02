@@ -1,12 +1,16 @@
 {
-  "extends": "../tsconfig.json",
   "compilerOptions": {
+    "target": "ES2022",
     "rootDir": ".",
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "jsx": "react-jsx",
     "lib": ["DOM", "DOM.Iterable", "ES2022"],
     "types": ["astro/client", "node", "react", "react-dom"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
     "noEmit": true
   },
   "include": ["astro.config.ts", "server.ts", "src/**/*.ts", "src/**/*.tsx", ".astro/types.d.ts"]
