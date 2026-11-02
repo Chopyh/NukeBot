@@ -3,10 +3,15 @@ import { commands } from './commands/index.js';
 import { requiredEnv } from './config.js';
 import { startAdminApi } from './admin-api.js';
 import { applySettings, createSettingsPool, ensureSettingsTable, readSettings } from './settings.js';
+import { ensureBirthdayTables, startBirthdayScheduler } from './birthdays.js';
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const settingsPool = createSettingsPool();
 await ensureSettingsTable(settingsPool).catch(async (error) => {
+  await settingsPool.end();
+  throw error;
+});
+await ensureBirthdayTables(settingsPool).catch(async (error) => {
   await settingsPool.end();
   throw error;
 });
@@ -16,6 +21,7 @@ client.once(Events.ClientReady, (readyClient) => {
   console.log(`Conectado como ${readyClient.user.tag}.`);
   applySettings(client, currentSettings);
 });
+startBirthdayScheduler(client, settingsPool);
 
 client.on(Events.Error, (error) => console.error('Error del cliente:', error));
 
@@ -27,7 +33,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await interaction.reply({ content: 'Este comando ya no está disponible.', flags: MessageFlags.Ephemeral });
       return;
     }
-    await command.execute(interaction);
+    await command.execute(interaction, { pool: settingsPool });
   } catch (error) {
     console.error(`Error en /${interaction.commandName}:`, error);
     try {

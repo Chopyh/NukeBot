@@ -1,6 +1,6 @@
 # Base de bot de Discord
 
-Bot modular en TypeScript con discord.js, comando `/ping`, configuración por variables de entorno, gestión de errores y cierre de conexión con Ctrl+C.
+Bot modular en TypeScript con discord.js, comandos `/ping` y `/cumpleanos`, configuración por variables de entorno, gestión de errores y cierre de conexión con Ctrl+C.
 
 ## Requisitos
 
@@ -13,9 +13,9 @@ Bot modular en TypeScript con discord.js, comando `/ping`, configuración por va
 1. Instala las dependencias con `npm install`.
 2. Copia `.env.example` a `.env` (PowerShell: `Copy-Item .env.example .env`).
 3. Completa `DISCORD_TOKEN` con el token de la sección **Bot**, `DISCORD_CLIENT_ID` con el **Application ID** y `DISCORD_GUILD_ID` con el ID del servidor de pruebas. Configura `DATABASE_URL` para tu PostgreSQL local y `ADMIN_API_TOKEN` con un secreto aleatorio compartido por el bot y el panel. Para generar uno, ejecuta `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Para copiar el ID del servidor, activa el modo desarrollador en Discord.
-4. En **OAuth2 > URL Generator**, selecciona los scopes `bot` y `applications.commands`. Abre la URL generada e instala el bot en tu servidor. Esta base no requiere permisos de administrador ni intents privilegiados.
-5. Ejecuta `npm run deploy:commands` para registrar `/ping` en el servidor configurado.
-6. Ejecuta `npm run dev` y prueba `/ping` en Discord. Para arrancar el panel localmente, configura `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `BOT_API_URL=http://localhost:3001` y `PORT=3000` en `.env`, y ejecuta `node admin-panel/server.mjs` en otra terminal; abre `http://localhost:3000`.
+4. Invita el bot con los scopes `bot` y `applications.commands`, y estos permisos: **Manage Roles**, **Manage Channels**, **Mute Members**, **Deafen Members** y **Move Members**. Coloca el rol del bot por encima de los roles que vaya a gestionar. El rol de cumpleaños quedará lo más alto posible sin superar el rol del bot ni `Dios`; si el rol del bot está debajo de `Dios`, el rol temporal también quedará debajo del rol del bot.
+5. Ejecuta `npm run deploy:commands` para registrar `/ping` y `/cumpleanos` en el servidor configurado.
+6. Ejecuta `npm run dev`. Los usuarios pueden usar `/cumpleanos registrar` con día, mes, emoji y nombre de rol; `/cumpleanos ver` consulta el registro y `/cumpleanos borrar` lo elimina. En el día registrado, el bot añade el emoji al inicio de todos los canales de texto y voz, y crea/entrega el rol con permisos para silenciar, ensordecer y mover miembros de voz. El rol se elimina y los nombres de canales se restauran al terminar 24 horas. La fecha se calcula en `BIRTHDAY_TIMEZONE` (por defecto `Europe/Madrid`); los cumpleaños del 29 de febrero se celebran el 28 en años no bisiestos. Para arrancar el panel localmente, configura `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `BOT_API_URL=http://localhost:3001` y `PORT=3000` en `.env`, y ejecuta `node admin-panel/server.mjs` en otra terminal; abre `http://localhost:3000`.
 
 El token es secreto: no lo subas al repositorio. `.env` está excluido por `.gitignore`.
 
@@ -58,6 +58,7 @@ El `Dockerfile` compila TypeScript en una etapa independiente y ejecuta el bot c
    DISCORD_CLIENT_ID=id_de_la_aplicacion
    DISCORD_GUILD_ID=id_del_servidor
    DATABASE_URL=postgresql://usuario:contraseña@<hostname-postgres>:5432/<base_de_datos>
+   BIRTHDAY_TIMEZONE=Europe/Madrid
    ADMIN_API_TOKEN=<secreto-aleatorio-compartido-con-el-panel>
    BOT_API_PORT=3001
    ```
