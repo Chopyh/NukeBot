@@ -9,6 +9,7 @@ export {
   LoaderCircle,
   RotateCcw,
   Search,
+  Shield,
   Settings2,
   ShieldCheck,
   Sparkles,

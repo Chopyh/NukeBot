@@ -273,6 +273,10 @@ const server = createServer(async (request, response) => {
 
   const botProxyPath = url.pathname.startsWith('/api/bot/') ? url.pathname.slice('/api/bot'.length) : '';
   const allowedBotRoute = botProxyPath === '/guilds'
+    || /^\/guilds\/\d{17,20}\/roles$/.test(botProxyPath)
+    || /^\/guilds\/\d{17,20}\/channels$/.test(botProxyPath)
+    || botProxyPath === '/reaction-roles'
+    || /^\/reaction-roles\/\d{17,20}\/\d{17,20}$/.test(botProxyPath)
     || botProxyPath === '/birthdays'
     || /^\/guilds\/\d{17,20}\/birthdays\/\d{17,20}$/.test(botProxyPath)
     || /^\/guilds\/\d{17,20}\/members$/.test(botProxyPath)

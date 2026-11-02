@@ -1,0 +1,31 @@
+<section aria-labelledby="reaction-roles-title">
+  <div class="section-head">
+    <div>
+      <h2 id="reaction-roles-title" class="section-title">Nueva asociación</h2>
+      <p class="section-note">El bot añadirá la reacción al mensaje. Al reaccionar o quitarla, el miembro recibirá o perderá el rol.</p>
+    </div>
+  </div>
+  <form id="reaction-role-form" class="settings-form reaction-role-form">
+    <label class="field">Servidor<select id="reaction-role-guild" required><option value="">Cargando servidores…</option></select></label>
+    <label class="field">Rol<select id="reaction-role-role" required disabled><option value="">Selecciona un servidor</option></select></label>
+    <label class="field">Emoji<input id="reaction-role-emoji" maxlength="64" placeholder="😀 o <:nombre:id>" required /></label>
+    <label class="field">Canal<select id="reaction-role-channel" required disabled><option value="">Selecciona un servidor</option></select></label>
+    <label class="field">ID del mensaje<input id="reaction-role-message-id" inputmode="numeric" minlength="17" maxlength="20" placeholder="ID del mensaje" required /></label>
+    <button id="reaction-role-save" class="button primary reaction-role-submit" type="submit">Guardar asociación</button>
+    <p id="reaction-role-form-message" class="message" role="status" aria-live="polite"></p>
+  </form>
+
+  <section class="section" aria-labelledby="reaction-role-list-title">
+    <div class="section-head">
+      <div><h2 id="reaction-role-list-title" class="section-title">Asociaciones activas</h2><p class="section-note">Configuradas desde este panel.</p></div>
+      <button id="refresh-reaction-roles" class="button" type="button">Actualizar</button>
+    </div>
+    <div class="table-wrap">
+      <table class="flat-table reaction-role-table">
+        <thead><tr><th scope="col">Servidor</th><th scope="col">Emoji</th><th scope="col">Rol</th><th scope="col">Canal</th><th scope="col">Mensaje</th><th scope="col">Acciones</th></tr></thead>
+        <tbody id="reaction-role-rows"></tbody>
+      </table>
+    </div>
+    <p id="reaction-role-list-message" class="message" role="status" aria-live="polite">Cargando asociaciones…</p>
+  </section>
+</section>

@@ -6,6 +6,7 @@ import Topbar from '../components/Topbar.astro';
 import PageHeading from '../components/PageHeading.astro';
 import BirthdayTable from '../components/BirthdayTable.astro';
 import BirthdayTestPanel from '../components/BirthdayTestPanel.jsx';
+import ReactionRolesPanel from '../components/ReactionRolesPanel.astro';
 ---
 <!doctype html>
 <html lang="es" class="dark">
@@ -38,6 +39,11 @@ import BirthdayTestPanel from '../components/BirthdayTestPanel.jsx';
           <BirthdayTable />
 
           <BirthdayTestPanel client:load />
+        </section>
+
+        <section id="page-reaction-roles" class="page">
+          <PageHeading title="Roles por reacción" description="Asigna roles a miembros desde reacciones en mensajes de Discord." />
+          <ReactionRolesPanel />
         </section>
 
         <section id="page-settings" class="page">

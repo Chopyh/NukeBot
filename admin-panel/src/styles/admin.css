@@ -633,6 +633,30 @@ h1 {
   margin-bottom: 16px;
 }
 
+.reaction-role-form {
+  display: grid;
+  max-width: 900px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 16px;
+}
+
+.reaction-role-form .field {
+  margin-bottom: 15px;
+}
+
+.reaction-role-submit {
+  justify-self: start;
+}
+
+.reaction-role-form .message {
+  align-self: center;
+  margin: 0;
+}
+
+.reaction-role-table {
+  min-width: 800px;
+}
+
 footer {
   margin-top: 38px;
   color: #85868b;
@@ -640,6 +664,10 @@ footer {
 }
 
 @media (max-width: 760px) {
+  .reaction-role-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .sidebar {
     position: static;
     width: 100%;

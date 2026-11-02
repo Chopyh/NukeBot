@@ -68,6 +68,130 @@ export function startAdminApi(client: Client, pool: Pool): void {
       return;
     }
 
+    const reactionRoleGuildMatch = /^\/api\/admin\/guilds\/(\d{17,20})\/roles$/.exec(url.pathname);
+    if (request.method === 'GET' && reactionRoleGuildMatch) {
+      try {
+        const guild = await client.guilds.fetch(reactionRoleGuildMatch[1]!);
+        const botMember = guild.members.me ?? await guild.members.fetchMe();
+        const roles = await guild.roles.fetch();
+        sendJson(response, 200, roles
+          .filter((role) => role.id !== guild.id && !role.managed && role.position < botMember.roles.highest.position)
+          .sort((left, right) => right.position - left.position)
+          .map((role) => ({ id: role.id, name: role.name, position: role.position })));
+      } catch (error) {
+        console.error('No se pudieron consultar los roles del servidor:', error);
+        sendJson(response, 503, { error: 'No se pudieron cargar los roles de ese servidor.' });
+      }
+      return;
+    }
+
+    const reactionRoleChannelsMatch = /^\/api\/admin\/guilds\/(\d{17,20})\/channels$/.exec(url.pathname);
+    if (request.method === 'GET' && reactionRoleChannelsMatch) {
+      try {
+        const guild = await client.guilds.fetch(reactionRoleChannelsMatch[1]!);
+        const channels = await guild.channels.fetch();
+        sendJson(response, 200, channels
+          .filter((channel) => channel?.isTextBased() && 'messages' in channel && !channel.isThread())
+          .map((channel) => ({ id: channel!.id, name: channel!.name }))
+          .sort((left, right) => left.name.localeCompare(right.name)));
+      } catch (error) {
+        console.error('No se pudieron consultar los canales del servidor:', error);
+        sendJson(response, 503, { error: 'No se pudieron cargar los canales de ese servidor.' });
+      }
+      return;
+    }
+
+    if (request.method === 'GET' && url.pathname === '/api/admin/reaction-roles') {
+      try {
+        const result = await pool.query(`
+          SELECT guild_id, channel_id, message_id, emoji_key, emoji_display, role_id
+          FROM reaction_roles ORDER BY created_at DESC
+        `);
+        sendJson(response, 200, result.rows.map((mapping) => {
+          const guild = client.guilds.cache.get(mapping.guild_id);
+          return {
+            ...mapping,
+            guild_name: guild?.name ?? 'Servidor no disponible',
+            role_name: guild?.roles.cache.get(mapping.role_id)?.name ?? mapping.role_id,
+          };
+        }));
+      } catch (error) {
+        console.error('No se pudieron consultar las asociaciones de roles por reacción:', error);
+        sendJson(response, 503, { error: 'No se pudieron consultar las asociaciones.' });
+      }
+      return;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/admin/reaction-roles') {
+      try {
+        const body = await readJson(request) as Record<string, unknown>;
+        const validId = (value: unknown): value is string => typeof value === 'string' && /^\d{17,20}$/.test(value);
+        if (!validId(body.guildId) || !validId(body.channelId) || !validId(body.messageId) ||
+            !validId(body.roleId) || typeof body.emoji !== 'string' || body.emoji.length > 64) {
+          sendJson(response, 400, { error: 'Selecciona servidor y rol, e indica emoji, ID del canal e ID del mensaje.' });
+          return;
+        }
+        const emojiInput = body.emoji.trim();
+        const customEmoji = emojiInput.match(/^<(a?):([A-Za-z0-9_]{2,32}):(\d{17,20})>$/);
+        const graphemes = [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(emojiInput)];
+        const unicodeEmoji = /\p{Extended_Pictographic}/u.test(emojiInput) || /\p{Regional_Indicator}{2}/u.test(emojiInput);
+        if (!customEmoji && !(unicodeEmoji && graphemes.length === 1 && [...emojiInput].length <= 16)) {
+          sendJson(response, 400, { error: 'Indica un único emoji Unicode o personalizado válido.' });
+          return;
+        }
+        const guild = await client.guilds.fetch(body.guildId);
+        const role = await guild.roles.fetch(body.roleId);
+        if (!role || role.managed || !role.editable) {
+          sendJson(response, 400, { error: 'El bot no puede gestionar ese rol. Comprueba su jerarquía y permisos.' });
+          return;
+        }
+        const channel = await guild.channels.fetch(body.channelId);
+        if (!channel?.isTextBased() || !('messages' in channel)) {
+          sendJson(response, 400, { error: 'El canal indicado no es un canal de texto válido de ese servidor.' });
+          return;
+        }
+        const message = await channel.messages.fetch(body.messageId);
+        if (message.guildId !== guild.id) {
+          sendJson(response, 400, { error: 'El mensaje no pertenece al servidor seleccionado.' });
+          return;
+        }
+        await message.react(emojiInput);
+        const emojiKey = customEmoji?.[3] ?? emojiInput;
+        await pool.query(
+          `INSERT INTO reaction_roles (guild_id, channel_id, message_id, emoji_key, emoji_display, role_id)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT (guild_id, message_id, emoji_key) DO UPDATE SET
+             channel_id = EXCLUDED.channel_id, emoji_display = EXCLUDED.emoji_display, role_id = EXCLUDED.role_id`,
+          [guild.id, channel.id, message.id, emojiKey, emojiInput, role.id],
+        );
+        sendJson(response, 201, { ok: true });
+      } catch (error) {
+        console.error('No se pudo guardar la asociación de roles por reacción:', error);
+        const message = error instanceof Error ? error.message : 'No se pudo guardar la asociación.';
+        sendJson(response, 400, { error: message });
+      }
+      return;
+    }
+
+    const reactionRoleMatch = /^\/api\/admin\/reaction-roles\/(\d{17,20})\/(\d{17,20})$/.exec(url.pathname);
+    if (request.method === 'DELETE' && reactionRoleMatch) {
+      const emojiInput = url.searchParams.get('emoji')?.trim() ?? '';
+      const customEmoji = emojiInput.match(/^<(a?):([A-Za-z0-9_]{2,32}):(\d{17,20})>$/);
+      const graphemes = [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(emojiInput)];
+      const unicodeEmoji = /\p{Extended_Pictographic}/u.test(emojiInput) || /\p{Regional_Indicator}{2}/u.test(emojiInput);
+      if (!customEmoji && !(unicodeEmoji && graphemes.length === 1 && [...emojiInput].length <= 16)) {
+        sendJson(response, 400, { error: 'Indica un emoji válido para eliminar la asociación.' });
+        return;
+      }
+      const emojiKey = customEmoji?.[3] ?? emojiInput;
+      const result = await pool.query(
+        'DELETE FROM reaction_roles WHERE guild_id = $1 AND message_id = $2 AND emoji_key = $3',
+        [reactionRoleMatch[1], reactionRoleMatch[2], emojiKey],
+      );
+      sendJson(response, result.rowCount ? 200 : 404, result.rowCount ? { ok: true } : { error: 'No se encontró esa asociación.' });
+      return;
+    }
+
     const authorizationMatch = /^\/api\/admin\/authorization\/(\d{17,20})$/.exec(url.pathname);
     if (request.method === 'GET' && authorizationMatch) {
       const guildId = process.env.DISCORD_GUILD_ID?.trim();

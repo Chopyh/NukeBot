@@ -1,5 +1,5 @@
 const statusEl = document.querySelector('#status');
-    const pageNames = { overview: 'Resumen', birthdays: 'Cumpleaños', settings: 'Configuración' };
+    const pageNames = { overview: 'Resumen', birthdays: 'Cumpleaños', 'reaction-roles': 'Roles por reacción', settings: 'Configuración' };
     const formatDuration = (seconds) => {
       const days = Math.floor(seconds / 86400); seconds %= 86400;
       const hours = Math.floor(seconds / 3600); seconds %= 3600;
@@ -176,6 +176,113 @@ const statusEl = document.querySelector('#status');
       } catch (error) { message.textContent = error.message; message.classList.add('error'); }
     }
     document.querySelector('#refresh-birthdays').addEventListener('click', () => { loadBirthdays(); window.dispatchEvent(new Event('birthday-tests-refresh')); });
+    const reactionRoleGuild = document.querySelector('#reaction-role-guild');
+    const reactionRoleSelect = document.querySelector('#reaction-role-role');
+    const reactionRoleChannel = document.querySelector('#reaction-role-channel');
+    async function loadReactionRoleGuilds() {
+      try {
+        const guilds = await api('/api/bot/guilds');
+        reactionRoleGuild.replaceChildren(new Option('Selecciona un servidor', ''));
+        for (const guild of guilds) reactionRoleGuild.add(new Option(guild.name, guild.id));
+      } catch (error) {
+        reactionRoleGuild.replaceChildren(new Option(error.message, ''));
+      }
+    }
+    reactionRoleGuild.addEventListener('change', async () => {
+      reactionRoleSelect.disabled = true;
+      reactionRoleSelect.replaceChildren(new Option('Cargando roles…', ''));
+      reactionRoleChannel.disabled = true;
+      reactionRoleChannel.replaceChildren(new Option('Cargando canales…', ''));
+      if (!reactionRoleGuild.value) {
+        reactionRoleSelect.replaceChildren(new Option('Selecciona un servidor', ''));
+        reactionRoleChannel.replaceChildren(new Option('Selecciona un servidor', ''));
+        return;
+      }
+      try {
+        const [roles, channels] = await Promise.all([
+          api(`/api/bot/guilds/${reactionRoleGuild.value}/roles`),
+          api(`/api/bot/guilds/${reactionRoleGuild.value}/channels`),
+        ]);
+        reactionRoleSelect.replaceChildren(new Option('Selecciona un rol', ''));
+        for (const role of roles) reactionRoleSelect.add(new Option(role.name, role.id));
+        reactionRoleSelect.disabled = false;
+        if (!roles.length) reactionRoleSelect.replaceChildren(new Option('No hay roles que el bot pueda gestionar', ''));
+        reactionRoleChannel.replaceChildren(new Option('Selecciona un canal', ''));
+        for (const channel of channels) reactionRoleChannel.add(new Option(`# ${channel.name}`, channel.id));
+        reactionRoleChannel.disabled = false;
+        if (!channels.length) reactionRoleChannel.replaceChildren(new Option('No hay canales de texto disponibles', ''));
+      } catch (error) {
+        reactionRoleSelect.replaceChildren(new Option(error.message, ''));
+        reactionRoleChannel.replaceChildren(new Option(error.message, ''));
+      }
+    });
+    async function loadReactionRoles() {
+      const message = document.querySelector('#reaction-role-list-message');
+      const rows = document.querySelector('#reaction-role-rows');
+      message.textContent = 'Cargando asociaciones…';
+      message.className = 'message';
+      rows.replaceChildren();
+      try {
+        const mappings = await api('/api/bot/reaction-roles');
+        for (const mapping of mappings) {
+          const row = document.createElement('tr');
+          const guild = document.createElement('td'); guild.textContent = mapping.guild_name; row.append(guild);
+          const emoji = document.createElement('td'); emoji.className = 'table-emoji'; emoji.textContent = mapping.emoji_display; row.append(emoji);
+          const role = document.createElement('td'); role.textContent = mapping.role_name; row.append(role);
+          for (const id of [mapping.channel_id, mapping.message_id]) {
+            const cell = document.createElement('td');
+            const code = document.createElement('code'); code.textContent = id; cell.append(code); row.append(cell);
+          }
+          const actions = document.createElement('td');
+          const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'button danger birthday-action'; remove.textContent = 'Eliminar';
+          remove.addEventListener('click', async () => {
+            if (!window.confirm(`¿Eliminar la asociación ${mapping.emoji_display} → ${mapping.role_name}?`)) return;
+            remove.disabled = true;
+            try {
+              const query = new URLSearchParams({ emoji: mapping.emoji_display });
+              await api(`/api/bot/reaction-roles/${mapping.guild_id}/${mapping.message_id}?${query}`, { method: 'DELETE' });
+              await loadReactionRoles();
+            } catch (error) {
+              message.textContent = error.message;
+              message.className = 'message error';
+              remove.disabled = false;
+            }
+          });
+          actions.append(remove); row.append(actions); rows.append(row);
+        }
+        message.textContent = mappings.length ? `${mappings.length} asociaciones` : 'Todavía no hay asociaciones de roles por reacción.';
+      } catch (error) { message.textContent = error.message; message.classList.add('error'); }
+    }
+    document.querySelector('#reaction-role-form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const button = document.querySelector('#reaction-role-save');
+      const message = document.querySelector('#reaction-role-form-message');
+      button.disabled = true;
+      message.textContent = 'Guardando asociación…';
+      message.className = 'message';
+      try {
+        await api('/api/bot/reaction-roles', {
+          method: 'POST',
+          body: JSON.stringify({
+            guildId: reactionRoleGuild.value,
+            roleId: reactionRoleSelect.value,
+            emoji: document.querySelector('#reaction-role-emoji').value,
+            channelId: reactionRoleChannel.value,
+            messageId: document.querySelector('#reaction-role-message-id').value.trim(),
+          }),
+        });
+        message.textContent = 'Asociación guardada y reacción añadida al mensaje.';
+        message.classList.add('success');
+        document.querySelector('#reaction-role-emoji').value = '';
+        reactionRoleChannel.value = '';
+        document.querySelector('#reaction-role-message-id').value = '';
+        await loadReactionRoles();
+      } catch (error) { message.textContent = error.message; message.classList.add('error'); }
+      finally { button.disabled = false; }
+    });
+    document.querySelector('#refresh-reaction-roles').addEventListener('click', loadReactionRoles);
+    loadReactionRoleGuilds();
+    loadReactionRoles();
     document.querySelector('#settings-form').addEventListener('submit', async (event) => {
       event.preventDefault();
       const button = document.querySelector('#save-button'); const message = document.querySelector('#save-message');

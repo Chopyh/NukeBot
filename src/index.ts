@@ -1,11 +1,15 @@
-import { Client, Events, GatewayIntentBits, MessageFlags } from 'discord.js';
+import { Client, Events, GatewayIntentBits, MessageFlags, Partials } from 'discord.js';
 import { commands } from './commands/index.js';
 import { requiredEnv } from './config.js';
 import { startAdminApi } from './admin-api.js';
 import { applySettings, createSettingsPool, ensureSettingsTable, readSettings } from './settings.js';
 import { ensureBirthdayTables, startBirthdayScheduler } from './birthdays.js';
+import { ensureReactionRoleTable, registerReactionRoleListeners } from './reaction-roles.js';
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessageReactions],
+  partials: [Partials.Message, Partials.Channel, Partials.Reaction, Partials.User],
+});
 const settingsPool = createSettingsPool();
 await ensureSettingsTable(settingsPool).catch(async (error) => {
   await settingsPool.end();
@@ -15,6 +19,11 @@ await ensureBirthdayTables(settingsPool).catch(async (error) => {
   await settingsPool.end();
   throw error;
 });
+await ensureReactionRoleTable(settingsPool).catch(async (error) => {
+  await settingsPool.end();
+  throw error;
+});
+registerReactionRoleListeners(client, settingsPool);
 let currentSettings = await readSettings(settingsPool);
 
 client.once(Events.ClientReady, (readyClient) => {
