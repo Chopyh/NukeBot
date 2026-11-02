@@ -184,10 +184,13 @@ const server = createServer(async (request, response) => {
     || /^\/guilds\/\d{17,20}\/birthday-tests\/[0-9a-f-]{36}$/i.test(botProxyPath);
   if (allowedBotRoute) {
     try {
-      const body = ['GET', 'HEAD'].includes(request.method ?? 'GET') ? undefined : JSON.stringify(await readJson(request));
+      // DELETE routes such as birthday-test cancellation intentionally have no body.
+      // Parsing an empty request stream with readJson throws "Unexpected end of JSON input".
+      const method = request.method ?? 'GET';
+      const body = ['GET', 'HEAD', 'DELETE'].includes(method) ? undefined : JSON.stringify(await readJson(request));
       const upstreamUrl = `${botApiUrl}/api/admin${botProxyPath}${url.search}`;
       const upstream = await fetch(upstreamUrl, {
-        method: request.method,
+        method,
         headers: {
           authorization: `Bearer ${botApiToken}`,
           ...(body ? { 'content-type': 'application/json' } : {}),
