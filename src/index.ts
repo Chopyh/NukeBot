@@ -7,7 +7,7 @@ import { ensureBirthdayTables, startBirthdayScheduler } from './birthdays.js';
 import { ensureReactionRoleTable, registerReactionRoleListeners } from './reaction-roles.js';
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessageReactions],
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessageReactions, GatewayIntentBits.GuildExpressions],
   partials: [Partials.Message, Partials.Channel, Partials.Reaction, Partials.User],
 });
 const settingsPool = createSettingsPool();

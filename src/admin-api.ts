@@ -1,6 +1,6 @@
 import { timingSafeEqual, createHash, randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
-import type { Client } from 'discord.js';
+import { EmbedBuilder, type Client } from 'discord.js';
 import type { Pool } from 'pg';
 import { readSettings, saveSettings } from './settings.js';
 import { cancelBirthdayTest, removeBirthdayRegistration, startBirthdayTest, updateBirthdayRegistration } from './birthdays.js';
@@ -101,6 +101,21 @@ export function startAdminApi(client: Client, pool: Pool): void {
       return;
     }
 
+    const reactionRoleEmojisMatch = /^\/api\/admin\/guilds\/(\d{17,20})\/emojis$/.exec(url.pathname);
+    if (request.method === 'GET' && reactionRoleEmojisMatch) {
+      try {
+        const guild = await client.guilds.fetch(reactionRoleEmojisMatch[1]!);
+        sendJson(response, 200, guild.emojis.cache
+          .filter((emoji) => emoji.available)
+          .map((emoji) => ({ id: emoji.id, name: emoji.name, animated: emoji.animated }))
+          .sort((left, right) => (left.name ?? '').localeCompare(right.name ?? '')));
+      } catch (error) {
+        console.error('No se pudieron consultar los emojis del servidor:', error);
+        sendJson(response, 503, { error: 'No se pudieron cargar los emojis de ese servidor.' });
+      }
+      return;
+    }
+
     if (request.method === 'GET' && url.pathname === '/api/admin/reaction-roles') {
       try {
         const result = await pool.query(`
@@ -126,45 +141,74 @@ export function startAdminApi(client: Client, pool: Pool): void {
       try {
         const body = await readJson(request) as Record<string, unknown>;
         const validId = (value: unknown): value is string => typeof value === 'string' && /^\d{17,20}$/.test(value);
-        if (!validId(body.guildId) || !validId(body.channelId) || !validId(body.messageId) ||
-            !validId(body.roleId) || typeof body.emoji !== 'string' || body.emoji.length > 64) {
-          sendJson(response, 400, { error: 'Selecciona servidor y rol, e indica emoji, ID del canal e ID del mensaje.' });
-          return;
-        }
-        const emojiInput = body.emoji.trim();
-        const customEmoji = emojiInput.match(/^<(a?):([A-Za-z0-9_]{2,32}):(\d{17,20})>$/);
-        const graphemes = [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(emojiInput)];
-        const unicodeEmoji = /\p{Extended_Pictographic}/u.test(emojiInput) || /\p{Regional_Indicator}{2}/u.test(emojiInput);
-        if (!customEmoji && !(unicodeEmoji && graphemes.length === 1 && [...emojiInput].length <= 16)) {
-          sendJson(response, 400, { error: 'Indica un único emoji Unicode o personalizado válido.' });
+        if (!validId(body.guildId) || !validId(body.channelId) || typeof body.title !== 'string' ||
+            typeof body.description !== 'string' || body.title.length > 256 || body.description.length > 4096 ||
+            typeof body.color !== 'string' || !/^#[0-9a-f]{6}$/i.test(body.color) ||
+            !Array.isArray(body.options) || body.options.length < 1 || body.options.length > 20) {
+          sendJson(response, 400, { error: 'Completa servidor, canal, mensaje y al menos una opción de rol.' });
           return;
         }
         const guild = await client.guilds.fetch(body.guildId);
-        const role = await guild.roles.fetch(body.roleId);
-        if (!role || role.managed || !role.editable) {
-          sendJson(response, 400, { error: 'El bot no puede gestionar ese rol. Comprueba su jerarquía y permisos.' });
-          return;
+        const options: { roleId: string; roleName: string; emoji: string; emojiKey: string }[] = [];
+        const emojiIds = new Set<string>();
+        for (const item of body.options) {
+          if (!item || typeof item !== 'object') throw new Error('Una de las opciones de rol no es válida.');
+          const option = item as Record<string, unknown>;
+          if (!validId(option.roleId) || typeof option.emoji !== 'string' || option.emoji.length > 64) {
+            throw new Error('Cada opción necesita un rol y un emoji válido.');
+          }
+          const emojiInput = option.emoji.trim();
+          const customEmoji = emojiInput.match(/^<(a?):([A-Za-z0-9_]{2,32}):(\d{17,20})>$/);
+          const graphemes = [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(emojiInput)];
+          const unicodeEmoji = /\p{Extended_Pictographic}/u.test(emojiInput) || /\p{Regional_Indicator}{2}/u.test(emojiInput);
+          if (!customEmoji && !(unicodeEmoji && graphemes.length === 1 && [...emojiInput].length <= 16)) {
+            throw new Error('Indica un único emoji Unicode o personalizado válido en cada opción.');
+          }
+          const emojiKey = customEmoji?.[3] ?? emojiInput;
+          if (emojiIds.has(emojiKey)) throw new Error('Cada opción debe usar un emoji distinto.');
+          emojiIds.add(emojiKey);
+          if (customEmoji) {
+            const serverEmoji = guild.emojis.cache.get(customEmoji[3]!);
+            if (!serverEmoji?.available) throw new Error('Uno de los emojis personalizados no está disponible en este servidor.');
+          }
+          const role = await guild.roles.fetch(option.roleId);
+          if (!role || role.managed || !role.editable) {
+            throw new Error('El bot no puede gestionar uno de los roles. Comprueba la jerarquía y los permisos.');
+          }
+          options.push({ roleId: role.id, roleName: role.name, emoji: emojiInput, emojiKey });
         }
         const channel = await guild.channels.fetch(body.channelId);
-        if (!channel?.isTextBased() || !('messages' in channel)) {
-          sendJson(response, 400, { error: 'El canal indicado no es un canal de texto válido de ese servidor.' });
-          return;
+        if (!channel?.isTextBased() || !('send' in channel)) throw new Error('El canal indicado no es un canal de texto válido.');
+        const optionDescriptions = options.map((option) => `${option.emoji} — **${option.roleName}**`).join('\n');
+        const description = `${body.description.trim() || 'Reacciona con el emoji correspondiente para obtener el rol.'}\n\n${optionDescriptions}`;
+        if (description.length > 4096) throw new Error('El texto y las opciones superan el límite de 4096 caracteres del mensaje.');
+        const embed = new EmbedBuilder().setColor(Number.parseInt(body.color.slice(1), 16)).setDescription(description);
+        if (body.title.trim()) embed.setTitle(body.title.trim());
+        const message = await channel.send({ embeds: [embed], allowedMentions: { parse: [] } });
+        try {
+          for (const option of options) await message.react(option.emoji);
+          const db = await pool.connect();
+          try {
+            await db.query('BEGIN');
+            for (const option of options) {
+              await db.query(
+                `INSERT INTO reaction_roles (guild_id, channel_id, message_id, emoji_key, emoji_display, role_id)
+                 VALUES ($1, $2, $3, $4, $5, $6)`,
+                [guild.id, channel.id, message.id, option.emojiKey, option.emoji, option.roleId],
+              );
+            }
+            await db.query('COMMIT');
+          } catch (error) {
+            await db.query('ROLLBACK');
+            throw error;
+          } finally {
+            db.release();
+          }
+        } catch (error) {
+          await message.delete().catch(() => null);
+          throw error;
         }
-        const message = await channel.messages.fetch(body.messageId);
-        if (message.guildId !== guild.id) {
-          sendJson(response, 400, { error: 'El mensaje no pertenece al servidor seleccionado.' });
-          return;
-        }
-        await message.react(emojiInput);
-        const emojiKey = customEmoji?.[3] ?? emojiInput;
-        await pool.query(
-          `INSERT INTO reaction_roles (guild_id, channel_id, message_id, emoji_key, emoji_display, role_id)
-           VALUES ($1, $2, $3, $4, $5, $6)
-           ON CONFLICT (guild_id, message_id, emoji_key) DO UPDATE SET
-             channel_id = EXCLUDED.channel_id, emoji_display = EXCLUDED.emoji_display, role_id = EXCLUDED.role_id`,
-          [guild.id, channel.id, message.id, emojiKey, emojiInput, role.id],
-        );
-        sendJson(response, 201, { ok: true });
+        sendJson(response, 201, { ok: true, messageId: message.id, options: options.length });
       } catch (error) {
         console.error('No se pudo guardar la asociación de roles por reacción:', error);
         const message = error instanceof Error ? error.message : 'No se pudo guardar la asociación.';

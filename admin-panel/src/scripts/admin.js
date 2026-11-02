@@ -177,8 +177,10 @@ const statusEl = document.querySelector('#status');
     }
     document.querySelector('#refresh-birthdays').addEventListener('click', () => { loadBirthdays(); window.dispatchEvent(new Event('birthday-tests-refresh')); });
     const reactionRoleGuild = document.querySelector('#reaction-role-guild');
-    const reactionRoleSelect = document.querySelector('#reaction-role-role');
     const reactionRoleChannel = document.querySelector('#reaction-role-channel');
+    const reactionRoleOptions = document.querySelector('#reaction-role-options');
+    let reactionRoleCatalog = { roles: [], emojis: [] };
+    const commonEmojis = ['😀','😃','😄','😁','😆','😅','😂','🙂','😉','😊','😍','🥰','😎','🤔','🙌','👏','👍','👎','❤️','💙','💚','💜','🧡','💛','🔥','✨','⭐','🌟','🎉','🎊','🎂','🎮','🎵','🎨','📚','💬','✅','❌','⚽','🏀','🎯','🌈','☀️','🌙','🍕','☕','🐱','🐶','🦊','🐸','🌸','🍀'];
     async function loadReactionRoleGuilds() {
       try {
         const guilds = await api('/api/bot/guilds');
@@ -189,33 +191,125 @@ const statusEl = document.querySelector('#status');
       }
     }
     reactionRoleGuild.addEventListener('change', async () => {
-      reactionRoleSelect.disabled = true;
-      reactionRoleSelect.replaceChildren(new Option('Cargando roles…', ''));
       reactionRoleChannel.disabled = true;
       reactionRoleChannel.replaceChildren(new Option('Cargando canales…', ''));
       if (!reactionRoleGuild.value) {
-        reactionRoleSelect.replaceChildren(new Option('Selecciona un servidor', ''));
+        reactionRoleCatalog = { roles: [], emojis: [] };
         reactionRoleChannel.replaceChildren(new Option('Selecciona un servidor', ''));
+        reactionRoleOptions.replaceChildren();
+        addReactionRoleOption();
         return;
       }
       try {
-        const [roles, channels] = await Promise.all([
+        const [roles, channels, emojis] = await Promise.all([
           api(`/api/bot/guilds/${reactionRoleGuild.value}/roles`),
           api(`/api/bot/guilds/${reactionRoleGuild.value}/channels`),
+          api(`/api/bot/guilds/${reactionRoleGuild.value}/emojis`),
         ]);
-        reactionRoleSelect.replaceChildren(new Option('Selecciona un rol', ''));
-        for (const role of roles) reactionRoleSelect.add(new Option(role.name, role.id));
-        reactionRoleSelect.disabled = false;
-        if (!roles.length) reactionRoleSelect.replaceChildren(new Option('No hay roles que el bot pueda gestionar', ''));
+        reactionRoleCatalog = { roles, emojis };
         reactionRoleChannel.replaceChildren(new Option('Selecciona un canal', ''));
         for (const channel of channels) reactionRoleChannel.add(new Option(`# ${channel.name}`, channel.id));
         reactionRoleChannel.disabled = false;
         if (!channels.length) reactionRoleChannel.replaceChildren(new Option('No hay canales de texto disponibles', ''));
+        reactionRoleOptions.replaceChildren();
+        addReactionRoleOption();
       } catch (error) {
-        reactionRoleSelect.replaceChildren(new Option(error.message, ''));
+        reactionRoleCatalog = { roles: [], emojis: [] };
         reactionRoleChannel.replaceChildren(new Option(error.message, ''));
       }
     });
+    function addReactionRoleOption() {
+      if (reactionRoleOptions.querySelectorAll('.reaction-option').length >= 20) return;
+      const row = document.createElement('div'); row.className = 'reaction-option';
+      const roleField = document.createElement('label'); roleField.className = 'field'; roleField.textContent = 'Rol que se asignará';
+      const roleSelect = document.createElement('select'); roleSelect.required = true;
+      roleSelect.add(new Option(reactionRoleCatalog.roles.length ? 'Selecciona un rol' : 'Elige primero un servidor', ''));
+      for (const role of reactionRoleCatalog.roles) roleSelect.add(new Option(role.name, role.id));
+      roleSelect.addEventListener('change', refreshEmbedPreview);
+      roleField.append(roleSelect);
+
+      const emojiField = document.createElement('div'); emojiField.className = 'field';
+      const emojiLabel = document.createElement('span'); emojiLabel.textContent = 'Emoji de reacción'; emojiField.append(emojiLabel);
+      const picker = document.createElement('details'); picker.className = 'reaction-emoji-picker';
+      const summary = document.createElement('summary'); summary.textContent = '🙂  Elige un emoji'; picker.append(summary);
+      const grid = document.createElement('div'); grid.className = 'emoji-picker-grid';
+      const emojiInput = document.createElement('input'); emojiInput.type = 'hidden';
+      function addEmojiChoice(value, label, customEmoji = null) {
+        const choice = document.createElement('button'); choice.type = 'button'; choice.className = 'emoji-choice'; choice.title = label;
+        if (customEmoji) {
+          const image = document.createElement('img'); image.src = `https://cdn.discordapp.com/emojis/${customEmoji.id}.${customEmoji.animated ? 'gif' : 'png'}?size=48`; image.alt = label; choice.append(image);
+        } else choice.textContent = value;
+        choice.addEventListener('click', () => {
+          emojiInput.value = value;
+          summary.replaceChildren();
+          if (customEmoji) {
+            const image = document.createElement('img'); image.className = 'emoji-choice-preview'; image.src = `https://cdn.discordapp.com/emojis/${customEmoji.id}.${customEmoji.animated ? 'gif' : 'png'}?size=48`; image.alt = label; summary.append(image);
+          } else summary.textContent = value;
+          summary.append(document.createTextNode(` ${label}`));
+          picker.open = false;
+          refreshEmbedPreview();
+        });
+        grid.append(choice);
+      }
+      const unicodeLabel = document.createElement('span'); unicodeLabel.className = 'emoji-picker-label'; unicodeLabel.textContent = 'EMOJI'; grid.append(unicodeLabel);
+      for (const emoji of commonEmojis) addEmojiChoice(emoji, emoji);
+      if (reactionRoleCatalog.emojis.length) {
+        const serverLabel = document.createElement('span'); serverLabel.className = 'emoji-picker-label'; serverLabel.textContent = 'EMOJIS DEL SERVIDOR'; grid.append(serverLabel);
+        for (const emoji of reactionRoleCatalog.emojis) {
+          const value = `<${emoji.animated ? 'a' : ''}:${emoji.name}:${emoji.id}>`;
+          addEmojiChoice(value, `:${emoji.name}:`, emoji);
+        }
+      }
+      picker.append(grid); emojiField.append(picker, emojiInput);
+      const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'button danger reaction-option-remove'; remove.textContent = 'Quitar';
+      remove.addEventListener('click', () => { row.remove(); refreshEmbedPreview(); document.querySelector('#reaction-role-add-option').disabled = false; });
+      row.append(roleField, emojiField, remove);
+      reactionRoleOptions.append(row);
+      document.querySelector('#reaction-role-add-option').disabled = reactionRoleOptions.querySelectorAll('.reaction-option').length >= 20;
+      refreshEmbedPreview();
+    }
+    document.querySelector('#reaction-role-add-option').addEventListener('click', addReactionRoleOption);
+    addReactionRoleOption();
+
+    const editor = document.querySelector('#reaction-role-description');
+    const previewTitle = document.querySelector('#reaction-role-preview-title');
+    const previewDescription = document.querySelector('#reaction-role-preview-description');
+    const previewBar = document.querySelector('#reaction-role-preview-bar');
+    const escapeHtml = (value) => value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
+    function renderDiscordMarkdown(value) {
+      let html = escapeHtml(value).replace(/&lt;a?:([A-Za-z0-9_]{2,32}):(\d{17,20})&gt;/g, (match, name, id) => {
+        const emoji = reactionRoleCatalog.emojis.find((item) => item.id === id && item.name === name);
+        return emoji ? `<img class="embed-preview-emoji" src="https://cdn.discordapp.com/emojis/${emoji.id}.${emoji.animated ? 'gif' : 'png'}?size=32" alt=":${escapeHtml(name)}:">` : match;
+      }).replace(/`([^`]+)`/g, '<code>$1</code>')
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/__(.+?)__/g, '<u>$1</u>')
+        .replace(/~~(.+?)~~/g, '<s>$1</s>').replace(/\*(.+?)\*/g, '<em>$1</em>')
+        .replace(/^&gt; (.*)$/gm, '<span class="preview-quote">$1</span>');
+      return html.replace(/\n/g, '<br>');
+    }
+    function refreshEmbedPreview() {
+      const title = document.querySelector('#reaction-role-title-input').value.trim();
+      previewTitle.textContent = title || 'Elige tus roles';
+      const roleLines = [...reactionRoleOptions.querySelectorAll('.reaction-option')].map((row) => {
+        const emoji = row.querySelector('input[type="hidden"]').value;
+        const role = row.querySelector('select').selectedOptions[0]?.textContent;
+        return emoji && role && !role.startsWith('Selecciona') && !role.startsWith('Elige primero') ? `${emoji} — **${role}**` : '';
+      }).filter(Boolean).join('\n');
+      const description = [editor.value || 'Reacciona con el emoji correspondiente para obtener el rol.', roleLines].filter(Boolean).join('\n\n');
+      previewDescription.innerHTML = renderDiscordMarkdown(description);
+      const color = document.querySelector('#reaction-role-color').value;
+      previewBar.style.backgroundColor = color;
+      document.querySelector('#reaction-role-color-value').textContent = color.toUpperCase();
+    }
+    document.querySelector('#reaction-role-title-input').addEventListener('input', refreshEmbedPreview);
+    editor.addEventListener('input', refreshEmbedPreview);
+    document.querySelector('#reaction-role-color').addEventListener('input', refreshEmbedPreview);
+    const formatTokens = { bold: ['**', '**'], italic: ['*', '*'], underline: ['__', '__'], strike: ['~~', '~~'], code: ['`', '`'], quote: ['> ', ''] };
+    document.querySelectorAll('[data-format]').forEach((button) => button.addEventListener('click', () => {
+      const [before, after] = formatTokens[button.dataset.format];
+      const start = editor.selectionStart; const end = editor.selectionEnd; const selected = editor.value.slice(start, end) || 'texto';
+      editor.setRangeText(`${before}${selected}${after}`, start, end, 'select'); editor.focus(); editor.dispatchEvent(new Event('input'));
+    }));
+    refreshEmbedPreview();
     async function loadReactionRoles() {
       const message = document.querySelector('#reaction-role-list-message');
       const rows = document.querySelector('#reaction-role-rows');
@@ -258,24 +352,34 @@ const statusEl = document.querySelector('#status');
       const button = document.querySelector('#reaction-role-save');
       const message = document.querySelector('#reaction-role-form-message');
       button.disabled = true;
-      message.textContent = 'Guardando asociación…';
+      message.textContent = 'Publicando mensaje y añadiendo reacciones…';
       message.className = 'message';
       try {
+        const options = [...reactionRoleOptions.querySelectorAll('.reaction-option')].map((row) => ({
+          roleId: row.querySelector('select').value,
+          emoji: row.querySelector('input[type="hidden"]').value,
+        }));
+        if (!options.length || options.some((option) => !option.roleId || !option.emoji)) throw new Error('Completa el rol y el emoji de cada opción.');
         await api('/api/bot/reaction-roles', {
           method: 'POST',
           body: JSON.stringify({
             guildId: reactionRoleGuild.value,
-            roleId: reactionRoleSelect.value,
-            emoji: document.querySelector('#reaction-role-emoji').value,
             channelId: reactionRoleChannel.value,
-            messageId: document.querySelector('#reaction-role-message-id').value.trim(),
+            title: document.querySelector('#reaction-role-title-input').value,
+            description: editor.value,
+            color: document.querySelector('#reaction-role-color').value,
+            options,
           }),
         });
-        message.textContent = 'Asociación guardada y reacción añadida al mensaje.';
+        message.textContent = 'Mensaje publicado con sus roles y reacciones.';
         message.classList.add('success');
-        document.querySelector('#reaction-role-emoji').value = '';
+        document.querySelector('#reaction-role-title-input').value = '';
+        editor.value = '';
+        document.querySelector('#reaction-role-color').value = '#5865F2';
+        reactionRoleOptions.replaceChildren();
+        addReactionRoleOption();
+        refreshEmbedPreview();
         reactionRoleChannel.value = '';
-        document.querySelector('#reaction-role-message-id').value = '';
         await loadReactionRoles();
       } catch (error) { message.textContent = error.message; message.classList.add('error'); }
       finally { button.disabled = false; }
