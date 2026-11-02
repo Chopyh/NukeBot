@@ -1,6 +1,6 @@
 # Base de bot de Discord
 
-Bot modular en TypeScript con discord.js, comandos `/ping` y `/cumpleanos`, configuración por variables de entorno, gestión de errores y cierre de conexión con Ctrl+C.
+Bot modular en TypeScript con discord.js, comandos `/ping` y `/cumple`, configuración por variables de entorno, gestión de errores y cierre de conexión con Ctrl+C.
 
 ## Requisitos
 
@@ -14,8 +14,7 @@ Bot modular en TypeScript con discord.js, comandos `/ping` y `/cumpleanos`, conf
 2. Copia `.env.example` a `.env` (PowerShell: `Copy-Item .env.example .env`).
 3. Completa `DISCORD_TOKEN` con el token de la sección **Bot**, `DISCORD_CLIENT_ID` con el **Application ID** y `DISCORD_GUILD_ID` con el ID del servidor de pruebas. Configura `DATABASE_URL` para tu PostgreSQL local y `ADMIN_API_TOKEN` con un secreto aleatorio compartido por el bot y el panel. Para generar uno, ejecuta `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Para copiar el ID del servidor, activa el modo desarrollador en Discord.
 4. Invita el bot con los scopes `bot` y `applications.commands`, y estos permisos: **Manage Roles**, **Manage Channels**, **Mute Members**, **Deafen Members** y **Move Members**. Coloca el rol del bot por encima de los roles que vaya a gestionar. El rol de cumpleaños quedará lo más alto posible sin superar el rol del bot ni `Dios`; si el rol del bot está debajo de `Dios`, el rol temporal también quedará debajo del rol del bot.
-5. Ejecuta `npm run deploy:commands` para registrar `/ping` y `/cumpleanos` en el servidor configurado.
-6. Ejecuta `npm run dev`. Los usuarios pueden usar `/cumpleanos registrar` con día, mes, emoji y nombre de rol; `/cumpleanos ver` consulta el registro y `/cumpleanos borrar` lo elimina. En el día registrado, el bot añade el emoji al inicio de todos los canales de texto y voz, y crea/entrega el rol con permisos para silenciar, ensordecer y mover miembros de voz. El rol se elimina y los nombres de canales se restauran al terminar 24 horas. La fecha se calcula en `BIRTHDAY_TIMEZONE` (por defecto `Europe/Madrid`); los cumpleaños del 29 de febrero se celebran el 28 en años no bisiestos. Para arrancar el panel localmente, configura `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `BOT_API_URL=http://localhost:3001` y `PORT=3000` en `.env`, y ejecuta `node admin-panel/server.mjs` en otra terminal; abre `http://localhost:3000`.
+5. Para desarrollo local, ejecuta `npm run deploy:commands` para registrar `/ping` y `/cumple`, y después `npm run dev`. Los usuarios pueden usar `/cumple registrar` con día, mes, emoji y nombre de rol; `/cumple ver` consulta el registro y `/cumple borrar` lo elimina. En el día registrado, el bot añade el emoji al inicio de todos los canales de texto y voz, y crea/entrega el rol con permisos para silenciar, ensordecer y mover miembros de voz. El rol se elimina y los nombres de canales se restauran al terminar 24 horas. La fecha se calcula en `BIRTHDAY_TIMEZONE` (por defecto `Europe/Madrid`); los cumpleaños del 29 de febrero se celebran el 28 en años no bisiestos. El panel muestra los cumpleaños registrados por servidor. Para arrancarlo localmente, configura `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `BOT_API_URL=http://localhost:3001` y `PORT=3000` en `.env`, y ejecuta `node admin-panel/server.mjs` en otra terminal; abre `http://localhost:3000`.
 
 El token es secreto: no lo subas al repositorio. `.env` está excluido por `.gitignore`.
 
@@ -35,7 +34,7 @@ Para producción ejecuta primero `npm run build` y después `npm start` con las 
 
 Crea un archivo en `src/commands/` siguiendo `ping.ts`, exporta un objeto de tipo `Command` e inclúyelo en la lista `definitions` de `src/commands/index.ts`. Registra de nuevo los comandos cuando cambies sus nombres, descripciones u opciones. Los cambios en su lógica solo requieren reiniciar el bot.
 
-El registro reemplaza la lista de comandos de esta aplicación en el servidor indicado. Usa un servidor de pruebas dedicado. No se registran comandos automáticamente al iniciar.
+El registro reemplaza la lista de comandos de esta aplicación en el servidor indicado. Usa un servidor de pruebas dedicado. En ejecución local vuelve a ejecutar `npm run deploy:commands` si cambian los nombres, descripciones u opciones. El contenedor del bot registra los comandos automáticamente antes de cada inicio.
 
 Si un comando tarda, llama a `interaction.deferReply()` antes de empezar el trabajo y a `interaction.editReply()` al terminar.
 
@@ -64,14 +63,7 @@ El `Dockerfile` compila TypeScript en una etapa independiente y ejecuta el bot c
    ```
 
 4. Mantén **una sola réplica**. En las opciones de Swarm, usa el orden de actualización **stop-first**. No publiques puertos ni asignes dominio al bot; el puerto `3001` solo se usa entre servicios en la red privada. Deja configurado el reinicio automático ante fallos.
-5. Despliega y comprueba en logs `Conectado como ...` y `API interna del panel escuchando en el puerto 3001`.
-6. Abre la terminal del contenedor en Dokploy y ejecuta una vez:
-
-   ```sh
-   node dist/deploy-commands.js
-   ```
-
-   También puedes ejecutar `npm run deploy:commands:prod`. Vuelve a registrar los comandos cuando cambies sus definiciones. Este paso reemplaza los comandos de la aplicación en el servidor configurado; no se ejecuta en cada arranque.
+5. Despliega. El contenedor registra `/ping` y `/cumple` en el servidor indicado por `DISCORD_GUILD_ID` antes de iniciar el bot, y repite el registro en cada arranque. Comprueba en logs `comando(s) registrado(s) en el servidor ...`, `Conectado como ...` y `API interna del panel escuchando en el puerto 3001`.
 
 ### Servicio del panel
 

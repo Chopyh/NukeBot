@@ -106,6 +106,39 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  if (request.method === 'GET' && url.pathname === '/api/birthdays') {
+    try {
+      const result = await pool.query(`
+        SELECT
+          registration.guild_id,
+          registration.user_id,
+          registration.day,
+          registration.month,
+          registration.emoji,
+          registration.role_name,
+          active.ends_at
+        FROM birthday_registrations AS registration
+        LEFT JOIN LATERAL (
+          SELECT event.ends_at
+          FROM birthday_events AS event
+          WHERE event.guild_id = registration.guild_id
+            AND event.user_id = registration.user_id
+            AND event.ends_at > NOW()
+          ORDER BY event.ends_at DESC
+          LIMIT 1
+        ) AS active ON TRUE
+        ORDER BY registration.month, registration.day, registration.guild_id, registration.user_id
+      `);
+      response.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+      response.end(JSON.stringify({ birthdays: result.rows }));
+    } catch (error) {
+      console.error('No se pudieron consultar los cumpleaños:', error);
+      response.writeHead(503, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+      response.end(JSON.stringify({ error: 'No se pudieron consultar los cumpleaños registrados.' }));
+    }
+    return;
+  }
+
   if (request.method === 'PUT' && url.pathname === '/api/settings') {
     try {
       const chunks = [];

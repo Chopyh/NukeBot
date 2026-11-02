@@ -2,9 +2,9 @@ import { SlashCommandBuilder } from 'discord.js';
 import type { Command } from './types.js';
 import { removeBirthdayRegistration, validateBirthdayEmoji } from '../birthdays.js';
 
-export const cumpleanos: Command = {
+export const cumple: Command = {
     data: new SlashCommandBuilder()
-      .setName('cumpleanos')
+      .setName('cumple')
       .setDescription('Registra y administra tu cumpleaños.')
       .addSubcommand((subcommand) => subcommand
         .setName('registrar')
@@ -68,7 +68,7 @@ export const cumpleanos: Command = {
         await interaction.reply({
           content: birthday
             ? `Tienes registrado el ${birthday.day}/${birthday.month}, con ${birthday.emoji} y el rol **${birthday.role_name}**.`
-            : 'Todavía no has registrado tu cumpleaños. Usa `/cumpleanos registrar`.',
+            : 'Todavía no has registrado tu cumpleaños. Usa `/cumple registrar`.',
           ephemeral: true,
         });
         return;
