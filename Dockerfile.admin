@@ -1,9 +1,18 @@
-FROM node:24-bookworm-slim
+FROM node:24-bookworm-slim AS build
+ENV ASTRO_TELEMETRY_DISABLED=1
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY admin-panel ./admin-panel
+RUN npm run build:admin
+
+FROM node:24-bookworm-slim AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
-COPY admin-panel ./admin-panel
+COPY --from=build --chown=node:node /app/admin-panel/dist ./admin-panel/dist
+COPY --chown=node:node admin-panel/server.mjs ./admin-panel/server.mjs
 USER node
 EXPOSE 3000
 CMD ["node", "admin-panel/server.mjs"]

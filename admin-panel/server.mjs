@@ -13,7 +13,8 @@ const botApiUrl = (process.env.BOT_API_URL ?? 'http://bot:3001').replace(/\/$/, 
 const botApiToken = required('ADMIN_API_TOKEN');
 const databaseUrl = required('DATABASE_URL');
 const pool = new pg.Pool({ connectionString: databaseUrl, max: 5, connectionTimeoutMillis: 5000 });
-const pagePath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public', 'index.html');
+const staticRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), 'dist');
+const pagePath = path.join(staticRoot, 'index.html');
 const defaults = { activityText: '', activityType: 'playing', presenceStatus: 'online' };
 
 function required(name) {
@@ -57,13 +58,41 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  if (request.method === 'GET' && url.pathname.startsWith('/_astro/')) {
+    try {
+      const relativePath = decodeURIComponent(url.pathname).replace(/^\/+/, '');
+      const assetPath = path.resolve(staticRoot, relativePath);
+      const assetRoot = `${path.resolve(staticRoot, '_astro')}${path.sep}`;
+      if (!assetPath.startsWith(assetRoot)) {
+        response.writeHead(404).end('No encontrado');
+        return;
+      }
+      const asset = await readFile(assetPath);
+      const contentType = {
+        '.css': 'text/css; charset=utf-8',
+        '.js': 'text/javascript; charset=utf-8',
+        '.svg': 'image/svg+xml',
+        '.woff': 'font/woff',
+        '.woff2': 'font/woff2',
+      }[path.extname(assetPath)] ?? 'application/octet-stream';
+      response.writeHead(200, {
+        'content-type': contentType,
+        'cache-control': 'public, max-age=31536000, immutable',
+        'x-content-type-options': 'nosniff',
+      }).end(asset);
+    } catch {
+      response.writeHead(404).end('No encontrado');
+    }
+    return;
+  }
+
   if (request.method === 'GET' && url.pathname === '/') {
     try {
       const page = await readFile(pagePath);
       response.writeHead(200, {
         'content-type': 'text/html; charset=utf-8',
         'cache-control': 'no-store',
-        'content-security-policy': "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:",
+        'content-security-policy': "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:",
         'x-content-type-options': 'nosniff',
         'x-frame-options': 'DENY',
         'referrer-policy': 'no-referrer',

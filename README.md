@@ -14,7 +14,7 @@ Bot modular en TypeScript con discord.js, comandos `/ping` y `/cumple`, configur
 2. Copia `.env.example` a `.env` (PowerShell: `Copy-Item .env.example .env`).
 3. Completa `DISCORD_TOKEN` con el token de la sección **Bot**, `DISCORD_CLIENT_ID` con el **Application ID** y `DISCORD_GUILD_ID` con el ID del servidor de pruebas. Configura `DATABASE_URL` para tu PostgreSQL local y `ADMIN_API_TOKEN` con un secreto aleatorio compartido por el bot y el panel. Para generar uno, ejecuta `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Para copiar el ID del servidor, activa el modo desarrollador en Discord.
 4. Invita el bot con los scopes `bot` y `applications.commands`, y estos permisos: **Manage Roles**, **Manage Channels**, **Mute Members**, **Deafen Members** y **Move Members**. Coloca el rol del bot por encima de los roles que vaya a gestionar. El rol de cumpleaños quedará lo más alto posible sin superar el rol del bot ni `Dios`; si el rol del bot está debajo de `Dios`, el rol temporal también quedará debajo del rol del bot.
-5. Para desarrollo local, ejecuta `npm run deploy:commands` para registrar `/ping` y `/cumple`, y después `npm run dev`. Los usuarios pueden usar `/cumple registrar` con día, mes, emoji y nombre de rol; `/cumple ver` consulta el registro y `/cumple borrar` lo elimina. En el día registrado, el bot añade el emoji al inicio de todos los canales de texto y voz, y crea/entrega el rol con permisos para silenciar, ensordecer y mover miembros de voz. El rol se elimina y los nombres de canales se restauran al terminar 24 horas. La fecha se calcula en `BIRTHDAY_TIMEZONE` (por defecto `Europe/Madrid`); los cumpleaños del 29 de febrero se celebran el 28 en años no bisiestos. El panel muestra los cumpleaños registrados por servidor. Para arrancarlo localmente, configura `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `BOT_API_URL=http://localhost:3001` y `PORT=3000` en `.env`, y ejecuta `node admin-panel/server.mjs` en otra terminal; abre `http://localhost:3000`.
+5. Para desarrollo local, ejecuta `npm run deploy:commands` para registrar `/ping` y `/cumple`, y después `npm run dev`. Los usuarios pueden usar `/cumple registrar` con día, mes, emoji y nombre de rol; `/cumple ver` consulta el registro y `/cumple borrar` lo elimina. En el día registrado, el bot añade el emoji al inicio de todos los canales de texto y voz, y crea/entrega el rol con permisos para silenciar, ensordecer y mover miembros de voz. El rol se elimina y los nombres de canales se restauran al terminar 24 horas. La fecha se calcula en `BIRTHDAY_TIMEZONE` (por defecto `Europe/Madrid`); los cumpleaños del 29 de febrero se celebran el 28 en años no bisiestos. El panel muestra los cumpleaños registrados por servidor. Para arrancarlo localmente, compila la interfaz Astro con `npm run build:admin`, configura `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `BOT_API_URL=http://localhost:3001` y `PORT=3000` en `.env`, y ejecuta `node admin-panel/server.mjs` en otra terminal; abre `http://localhost:3000`.
 
 El token es secreto: no lo subas al repositorio. `.env` está excluido por `.gitignore`.
 
@@ -25,6 +25,7 @@ El token es secreto: no lo subas al repositorio. `.env` está excluido por `.git
 | `npm run dev` | Inicia el bot y lo reinicia al editar código |
 | `npm run check` | Comprueba los tipos |
 | `npm run build` | Compila a `dist/` |
+| `npm run build:admin` | Compila el panel Astro a `admin-panel/dist/` |
 | `npm start` | Ejecuta la versión compilada |
 | `npm run deploy:commands` | Actualiza los comandos del servidor de pruebas |
 
@@ -44,7 +45,7 @@ Documentación: [discord.js](https://discord.js.org/docs/packages/discord.js/14.
 
 El proyecto queda compuesto por tres servicios en el mismo proyecto de Dokploy: PostgreSQL (el servicio que ya tienes), el bot (`Dockerfile`) y el panel web (`Dockerfile.admin`). El bot y el panel comparten PostgreSQL para guardar y aplicar la configuración. Ambos Dockerfiles están en la raíz del repositorio y usan `.` como contexto.
 
-El `Dockerfile` compila TypeScript en una etapa independiente y ejecuta el bot con Node.js 24, usuario sin privilegios y dependencias de producción. `Dockerfile.admin` ejecuta el servicio web con Node.js 24 y el usuario sin privilegios. Incluye `package-lock.json` en GitHub para que `npm ci` instale las versiones fijadas. No subas `.env`, `node_modules` ni `dist`.
+El `Dockerfile` compila TypeScript en una etapa independiente y ejecuta el bot con Node.js 24, usuario sin privilegios y dependencias de producción. `Dockerfile.admin` compila la interfaz Astro como sitio estático y la sirve junto con la API del panel usando Node.js 24 y un usuario sin privilegios. Incluye `package-lock.json` en GitHub para que `npm ci` instale las versiones fijadas. No subas `.env`, `node_modules` ni `dist`.
 
 ### Servicio del bot
 
