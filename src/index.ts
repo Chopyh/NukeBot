@@ -24,6 +24,14 @@ client.once(Events.ClientReady, (readyClient) => {
 startBirthdayScheduler(client, settingsPool);
 
 client.on(Events.Error, (error) => console.error('Error del cliente:', error));
+client.rest.on('rateLimited', (limit) => {
+  console.warn(
+    `[discord-rest] rate-limited scope=${limit.scope} global=${limit.global} method=${limit.method} route=${limit.route} major=${limit.majorParameter} retry_after_ms=${limit.retryAfter} bucket=${limit.hash}`,
+  );
+});
+client.rest.on('invalidRequestWarning', (warning) => {
+  console.warn(`[discord-rest] invalid-request-warning count=${warning.count} remaining=${warning.remainingTime}`);
+});
 
 client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.isChatInputCommand()) return;

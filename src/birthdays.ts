@@ -6,6 +6,7 @@ import {
   type Client,
   type Guild,
   type GuildBasedChannel,
+  type NonThreadGuildBasedChannel,
   type Role,
 } from 'discord.js';
 import { randomUUID } from 'node:crypto';
@@ -21,6 +22,7 @@ type Birthday = {
   color: string;
   role_id: string | null;
 };
+type RenamableChannel = NonThreadGuildBasedChannel & { name: string; setName(name: string, reason?: string): Promise<unknown> };
 
 const timezone = process.env.BIRTHDAY_TIMEZONE?.trim() || 'Europe/Madrid';
 const todayFormatter = new Intl.DateTimeFormat('en-CA', {
@@ -29,6 +31,7 @@ const todayFormatter = new Intl.DateTimeFormat('en-CA', {
   month: '2-digit',
   day: '2-digit',
 });
+const channelRefreshes = new Map<string, { promise: Promise<void>; rerun: boolean }>();
 
 export async function ensureBirthdayTables(pool: Pool): Promise<void> {
   await pool.query(`
@@ -136,7 +139,11 @@ export async function activateDueBirthdays(client: Client, pool: Pool): Promise<
        UNION ALL SELECT 1 FROM birthday_test_events WHERE guild_id = $1 LIMIT 1`,
       [guild.id],
     );
-    if (active.rowCount) await refreshBirthdayChannelNames(guild, pool);
+    const pendingRestore = await pool.query(
+      'SELECT 1 FROM birthday_channel_backups WHERE guild_id = $1 LIMIT 1',
+      [guild.id],
+    );
+    if (active.rowCount || pendingRestore.rowCount) await refreshBirthdayChannelNames(guild, pool);
   }
 }
 
@@ -357,7 +364,28 @@ export async function updateBirthdayRegistration(
   return true;
 }
 
-async function refreshBirthdayChannelNames(guild: Guild, pool: Pool, diagnosticId?: string): Promise<void> {
+function refreshBirthdayChannelNames(guild: Guild, pool: Pool, diagnosticId?: string): Promise<void> {
+  const running = channelRefreshes.get(guild.id);
+  if (running) {
+    running.rerun = true;
+    if (diagnosticId) console.info(`[birthday-test:${diagnosticId}] channel-refresh-coalesced guild=${guild.id}`);
+    return running.promise;
+  }
+
+  const state = { promise: Promise.resolve(), rerun: false };
+  state.promise = (async () => {
+    do {
+      state.rerun = false;
+      await performBirthdayChannelRefresh(guild, pool, diagnosticId);
+    } while (state.rerun);
+  })().finally(() => {
+    if (channelRefreshes.get(guild.id) === state) channelRefreshes.delete(guild.id);
+  });
+  channelRefreshes.set(guild.id, state);
+  return state.promise;
+}
+
+async function performBirthdayChannelRefresh(guild: Guild, pool: Pool, diagnosticId?: string): Promise<void> {
   const active = await pool.query<{ emoji: string }>(
     `SELECT emoji FROM birthday_events WHERE guild_id = $1
      UNION SELECT emoji FROM birthday_test_events WHERE guild_id = $1`,
@@ -366,59 +394,97 @@ async function refreshBirthdayChannelNames(guild: Guild, pool: Pool, diagnosticI
   const emojis = [...new Set(active.rows.map((row) => row.emoji))];
   const channels = await guild.channels.fetch();
   const eligibleChannels = channels.filter(isRenamableChannel);
+  const pending = [...eligibleChannels.values()].filter((channel): channel is RenamableChannel => isRenamableChannel(channel));
   let renamed = 0;
   let failed = 0;
   if (diagnosticId) console.info(`[birthday-test:${diagnosticId}] channels eligible=${eligibleChannels.size} active_emojis=${emojis.length}`);
 
   if (emojis.length) {
-    for (const possibleChannel of eligibleChannels.values()) {
-      if (!isRenamableChannel(possibleChannel)) continue;
-      const channel = possibleChannel;
-      const backup = await pool.query<{ original_name: string }>(
-        'SELECT original_name FROM birthday_channel_backups WHERE guild_id = $1 AND channel_id = $2',
-        [guild.id, channel.id],
+    const existing = await pool.query<{ channel_id: string; original_name: string }>(
+      'SELECT channel_id, original_name FROM birthday_channel_backups WHERE guild_id = $1',
+      [guild.id],
+    );
+    const originals = new Map(existing.rows.map((backup) => [backup.channel_id, backup.original_name]));
+    const missing = pending.filter((channel) => !originals.has(channel.id));
+    if (missing.length) {
+      await pool.query(
+        `INSERT INTO birthday_channel_backups (guild_id, channel_id, original_name)
+         SELECT $1, channel_id, original_name
+         FROM unnest($2::text[], $3::text[]) AS source(channel_id, original_name)
+         ON CONFLICT DO NOTHING`,
+        [guild.id, missing.map((channel) => channel.id), missing.map((channel) => channel.name)],
       );
-      const originalName = backup.rows[0]?.original_name ?? channel.name;
-      if (!backup.rowCount) {
-        await pool.query(
-          'INSERT INTO birthday_channel_backups (guild_id, channel_id, original_name) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
-          [guild.id, channel.id, originalName],
-        );
-      }
-      const desiredName = `${emojis.join(' ')} - ${originalName}`.slice(0, 100);
-      if (channel.name !== desiredName) {
-        try {
-          await channel.setName(desiredName, 'Decoración temporal por cumpleaños');
-          renamed += 1;
-        } catch (error) {
-          failed += 1;
-          console.error(`No se pudo renombrar el canal ${channel.id}:`, error);
-          if (diagnosticId) console.error(`[birthday-test:${diagnosticId}] channel-rename-failed channel=${channel.id} current=${channel.name} desired=${desiredName}`, error);
-        }
-        if (diagnosticId && (renamed + failed) % 10 === 0) {
-          console.info(`[birthday-test:${diagnosticId}] channel-progress processed=${renamed + failed}/${eligibleChannels.size} renamed=${renamed} failed=${failed}`);
-        }
-      }
+      for (const channel of missing) originals.set(channel.id, channel.name);
     }
+    let next = 0;
+    const worker = async () => {
+      while (next < pending.length) {
+        const channel = pending[next++];
+        if (!channel || !isRenamableChannel(channel)) continue;
+        const originalName = originals.get(channel.id) ?? channel.name;
+        const desiredName = `${emojis.join(' ')} - ${originalName}`.slice(0, 100);
+        if (channel.name !== desiredName) {
+          try {
+            await channel.setName(desiredName, 'Decoración temporal por cumpleaños');
+            renamed += 1;
+          } catch (error) {
+            failed += 1;
+            console.error(`No se pudo renombrar el canal ${channel.id}:`, error);
+            if (diagnosticId) console.error(`[birthday-test:${diagnosticId}] channel-rename-failed channel=${channel.id} current=${channel.name} desired=${desiredName}`, error);
+          }
+        }
+        if (diagnosticId && (next % 10 === 0 || next === pending.length)) {
+          console.info(`[birthday-test:${diagnosticId}] channel-progress processed=${next}/${pending.length} renamed=${renamed} failed=${failed}`);
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(2, pending.length) }, () => worker()));
     if (diagnosticId) console.info(`[birthday-test:${diagnosticId}] channel-summary renamed=${renamed} failed=${failed} eligible=${eligibleChannels.size}`);
     return;
   }
 
   const backups = await pool.query<{ channel_id: string; original_name: string }>(
-    'DELETE FROM birthday_channel_backups WHERE guild_id = $1 RETURNING channel_id, original_name',
+    'SELECT channel_id, original_name FROM birthday_channel_backups WHERE guild_id = $1',
     [guild.id],
   );
-  for (const backup of backups.rows) {
-    const channel = await guild.channels.fetch(backup.channel_id).catch(() => null);
-    if (channel && isRenamableChannel(channel) && channel.name !== backup.original_name) {
-      await channel.setName(backup.original_name, 'Restauración tras el cumpleaños').catch((error) => {
+  let next = 0;
+  let restored = 0;
+  let restoreFailed = 0;
+  const completedChannelIds: string[] = [];
+  const worker = async () => {
+    while (next < backups.rows.length) {
+      const backup = backups.rows[next++];
+      if (!backup) continue;
+      const channel = guild.channels.cache.get(backup.channel_id);
+      if (!channel || !isRenamableChannel(channel) || channel.name === backup.original_name) {
+        completedChannelIds.push(backup.channel_id);
+        continue;
+      }
+      try {
+        await channel.setName(backup.original_name, 'Restauración tras el cumpleaños');
+        restored += 1;
+        completedChannelIds.push(backup.channel_id);
+      } catch (error) {
+        restoreFailed += 1;
         console.error(`No se pudo restaurar el canal ${channel.id}:`, error);
-      });
+        if (diagnosticId) console.error(`[birthday-test:${diagnosticId}] channel-restore-failed channel=${channel.id} desired=${backup.original_name}`, error);
+      }
+      if (diagnosticId && (next % 10 === 0 || next === backups.rows.length)) {
+        console.info(`[birthday-test:${diagnosticId}] restore-progress processed=${next}/${backups.rows.length} restored=${restored} failed=${restoreFailed}`);
+      }
     }
+  };
+  await Promise.all(Array.from({ length: Math.min(2, backups.rows.length) }, () => worker()));
+  if (completedChannelIds.length) {
+    await pool.query(
+      'DELETE FROM birthday_channel_backups WHERE guild_id = $1 AND channel_id = ANY($2::text[])',
+      [guild.id, completedChannelIds],
+    );
   }
+  if (diagnosticId) console.info(`[birthday-test:${diagnosticId}] restore-summary restored=${restored} failed=${restoreFailed} backups=${backups.rows.length}`);
 }
 
-function isRenamableChannel(channel: GuildBasedChannel | null | undefined): channel is GuildBasedChannel & { name: string; setName(name: string, reason?: string): Promise<unknown> } {
+function isRenamableChannel(channel: GuildBasedChannel | null | undefined): channel is RenamableChannel {
   return channel?.type === ChannelType.GuildText
     || channel?.type === ChannelType.GuildAnnouncement
     || channel?.type === ChannelType.GuildVoice
