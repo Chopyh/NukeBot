@@ -14,7 +14,9 @@
     "check": "tsc --noEmit",
     "deploy:commands": "tsx src/deploy-commands.ts",
     "deploy:commands:prod": "node dist/deploy-commands.js",
-    "build:admin": "astro build --root admin-panel"
+    "build:admin": "astro build --root admin-panel",
+    "check:admin": "tsc --noEmit -p admin-panel/tsconfig.json",
+    "start:admin": "tsx admin-panel/server.ts"
   },
   "dependencies": {
     "discord.js": "14.27.0",

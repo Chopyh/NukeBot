@@ -1,17 +1,33 @@
 import { useEffect, useMemo, useState } from 'react';
+import type { ComponentProps } from 'react';
 import { MorphIcon } from 'morphicons/react';
 import {
   Cake, Check, ChevronDown, Clock3, LoaderCircle, RotateCcw, Search,
   ShieldCheck, Sparkles, UserRoundSearch, UsersRound,
-} from '../lib/icons.js';
-import { Badge } from './ui/badge.jsx';
-import { Button } from './ui/button.jsx';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card.jsx';
-import { Input } from './ui/input.jsx';
-import { Label } from './ui/label.jsx';
-import { cn } from '../lib/utils.js';
+} from '../lib/icons';
+import { Badge } from './ui/badge';
+import { Button } from './ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
+import { cn } from '../lib/utils';
 
-async function api(path, options = {}) {
+type Guild = { id: string; name: string; memberCount: number };
+type Birthday = { guild_id: string; user_id: string; emoji: string; role_name: string; color: string | null };
+type Member = { id: string; avatar: string | null; displayName: string; username: string };
+type BirthdayTest = { test_id: string; guild_id: string; emoji: string; role_name: string; user_id: string; ends_at: string };
+
+class ApiRequestError extends Error {
+  requestId: string | null;
+
+  constructor(message: string, requestId: string | null) {
+    super(message);
+    this.name = 'ApiRequestError';
+    this.requestId = requestId;
+  }
+}
+
+async function api(path: string, options: RequestInit = {}): Promise<any> {
   const response = await fetch(path, {
     cache: 'no-store',
     ...options,
@@ -26,25 +42,28 @@ async function api(path, options = {}) {
     throw new Error('La sesión expiró.');
   }
   if (!response.ok) {
-    const error = new Error(data.error ?? 'No se pudo completar la solicitud.');
-    error.requestId = data.requestId ?? response.headers.get('x-request-id');
-    throw error;
+    throw new ApiRequestError(
+      data.error ?? 'No se pudo completar la solicitud.',
+      data.requestId ?? response.headers.get('x-request-id') ?? null,
+    );
   }
   return data;
 }
 
-function describeError(error) {
-  return error.requestId ? `${error.message} (referencia: ${error.requestId})` : error.message;
+function describeError(error: unknown): string {
+  if (!(error instanceof Error)) return 'No se pudo completar la solicitud.';
+  const requestId = error instanceof ApiRequestError ? error.requestId : null;
+  return requestId ? `${error.message} (referencia: ${requestId})` : error.message;
 }
 
-function Avatar({ member, large = false }) {
+function Avatar({ member, large = false }: { member: Member | null; large?: boolean }) {
   const sizeClass = large ? 'size-14 text-lg' : 'size-10 text-sm';
   const className = cn('shrink-0 rounded-full border border-border bg-muted object-cover', sizeClass);
   if (member?.avatar) return <img className={className} src={member.avatar} alt="" />;
   return <span className={cn('grid place-items-center font-semibold text-muted-foreground', className)}>{member?.displayName?.slice(0, 1)?.toUpperCase() ?? '?'}</span>;
 }
 
-function EmptyResults({ icon: Icon, title, detail }) {
+function EmptyResults({ icon: Icon, title, detail }: { icon: ComponentProps<typeof MorphIcon>['icon']; title: string; detail: string }) {
   return (
     <div className="grid min-h-40 place-items-center rounded-xl border border-dashed border-border bg-background/60 px-5 py-8 text-center">
       <div>
@@ -57,16 +76,16 @@ function EmptyResults({ icon: Icon, title, detail }) {
 }
 
 export default function BirthdayTestPanel() {
-  const [guilds, setGuilds] = useState([]);
+  const [guilds, setGuilds] = useState<Guild[]>([]);
   const [guildId, setGuildId] = useState('');
-  const [birthdays, setBirthdays] = useState([]);
+  const [birthdays, setBirthdays] = useState<Birthday[]>([]);
   const [query, setQuery] = useState('');
-  const [members, setMembers] = useState([]);
-  const [member, setMember] = useState(null);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [member, setMember] = useState<Member | null>(null);
   const [emoji, setEmoji] = useState('🎂');
   const [roleName, setRoleName] = useState('');
   const [color, setColor] = useState('#D3FF75');
-  const [tests, setTests] = useState([]);
+  const [tests, setTests] = useState<BirthdayTest[]>([]);
   const [loadingGuilds, setLoadingGuilds] = useState(true);
   const [searching, setSearching] = useState(false);
   const [starting, setStarting] = useState(false);
@@ -96,8 +115,8 @@ export default function BirthdayTestPanel() {
   async function loadTests() {
     try {
       const result = await api('/api/bot/birthday-tests');
-      setTests(result.filter((test) => !guildId || test.guild_id === guildId));
-    } catch (fetchError) {
+      setTests((result as BirthdayTest[]).filter((test) => !guildId || test.guild_id === guildId));
+    } catch (fetchError: unknown) {
       setError(describeError(fetchError));
     }
   }
@@ -127,8 +146,8 @@ export default function BirthdayTestPanel() {
         const path = '/api/bot/guilds/' + guildId + '/members?q=' + encodeURIComponent(query.trim());
         const result = await api(path, { signal: controller.signal });
         setMembers(result);
-      } catch (fetchError) {
-        if (fetchError.name !== 'AbortError') setError(describeError(fetchError));
+      } catch (fetchError: unknown) {
+        if (!(fetchError instanceof DOMException && fetchError.name === 'AbortError')) setError(describeError(fetchError));
       } finally {
         if (!controller.signal.aborted) setSearching(false);
       }
@@ -160,14 +179,14 @@ export default function BirthdayTestPanel() {
       });
       setNotice('Prueba iniciada. Puedes restaurar los cambios desde la lista de pruebas activas.');
       await loadTests();
-    } catch (fetchError) {
+    } catch (fetchError: unknown) {
       setError(describeError(fetchError));
     } finally {
       setStarting(false);
     }
   }
 
-  async function cancelTest(test) {
+  async function cancelTest(test: BirthdayTest) {
     setBusyTestId(test.test_id);
     setError('');
     try {
@@ -176,7 +195,7 @@ export default function BirthdayTestPanel() {
       await loadTests();
       const result = await api('/api/bot/birthdays');
       setBirthdays(result.birthdays);
-    } catch (fetchError) {
+    } catch (fetchError: unknown) {
       setError(describeError(fetchError));
     } finally {
       setBusyTestId('');

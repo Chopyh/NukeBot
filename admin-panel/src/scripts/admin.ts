@@ -1,58 +1,97 @@
-const statusEl = document.querySelector('#status');
-    const pageNames = { overview: 'Resumen', birthdays: 'Cumpleaños', 'reaction-roles': 'Roles por reacción', settings: 'Configuración' };
-    const formatDuration = (seconds) => {
+interface PanelElement extends HTMLElement {
+  value: string;
+  disabled: boolean;
+  showModal(): void;
+  close(): void;
+  add(option: HTMLOptionElement): void;
+  elements: HTMLFormControlsCollection & Record<string, HTMLInputElement>;
+  selectionStart: number | null;
+  selectionEnd: number | null;
+  setRangeText(replacement: string, start?: number, end?: number, selectMode?: SelectionMode): void;
+  focus(options?: FocusOptions): void;
+  style: CSSStyleDeclaration;
+}
+
+type BirthdayRow = {
+  guild_id: string; user_id: string; guild_name: string; guild_icon: string | null;
+  display_name: string; username: string | null; avatar: string | null; day: number; month: number;
+  emoji: string; role_name: string; color: string | null; ends_at: string | null;
+};
+type ReactionEmoji = { id: string; name: string; animated: boolean };
+type ReactionRoleMapping = {
+  guild_id: string; message_id: string; channel_id: string; guild_name: string;
+  emoji_display: string; role_name: string;
+};
+type ReactionRoleCatalog = { roles: { id: string; name: string }[]; emojis: ReactionEmoji[] };
+
+function query(selector: string): PanelElement {
+  const element = document.querySelector<HTMLElement>(selector);
+  if (!element) throw new Error(`No se encontró el elemento requerido: ${selector}`);
+  return element as PanelElement;
+}
+
+function queryAll(selector: string): PanelElement[] {
+  return Array.from(document.querySelectorAll<HTMLElement>(selector)) as PanelElement[];
+}
+
+const statusEl = query('#status');
+    const pageNames: Record<string, string> = { overview: 'Resumen', birthdays: 'Cumpleaños', 'reaction-roles': 'Roles por reacción', settings: 'Configuración' };
+    const formatDuration = (seconds: number): string => {
       const days = Math.floor(seconds / 86400); seconds %= 86400;
       const hours = Math.floor(seconds / 3600); seconds %= 3600;
       const minutes = Math.floor(seconds / 60);
       return [days && `${days} d`, hours && `${hours} h`, `${minutes} min`].filter(Boolean).join(' ');
     };
-    async function api(path, options = {}) {
+    async function api(path: string, options: RequestInit = {}): Promise<any> {
       const response = await fetch(path, { cache: 'no-store', ...options, headers: { ...(options.body ? { 'content-type': 'application/json' } : {}), ...(options.headers ?? {}) } });
       const data = await response.json().catch(() => ({}));
       if (response.status === 401) { location.href = '/login'; throw new Error('La sesión expiró.'); }
       if (!response.ok) throw new Error(data.error ?? 'No se pudo completar la solicitud.');
       return data;
     }
-    function openPage(name) {
-      document.querySelectorAll('.page').forEach((page) => page.classList.toggle('active', page.id === `page-${name}`));
-      document.querySelectorAll('.nav-link').forEach((link) => link.classList.toggle('active', link.dataset.page === name));
-      document.querySelector('#current-section').textContent = pageNames[name];
+    function errorMessage(error: unknown): string {
+      return error instanceof Error ? error.message : 'No se pudo completar la solicitud.';
+    }
+    function openPage(name: string): void {
+      queryAll('.page').forEach((page) => page.classList.toggle('active', page.id === `page-${name}`));
+      queryAll('.nav-link').forEach((link) => link.classList.toggle('active', link.dataset.page === name));
+      query('#current-section').textContent = pageNames[name] ?? 'Resumen';
       history.replaceState(null, '', `#${name}`);
     }
-    document.querySelectorAll('.nav-link').forEach((link) => link.addEventListener('click', () => openPage(link.dataset.page)));
-    document.querySelectorAll('[data-open-page]').forEach((button) => button.addEventListener('click', () => openPage(button.dataset.openPage)));
+    queryAll('.nav-link').forEach((link) => link.addEventListener('click', () => openPage(link.dataset.page ?? 'overview')));
+    queryAll('[data-open-page]').forEach((button) => button.addEventListener('click', () => openPage(button.dataset.openPage ?? 'overview')));
     const initialPage = location.hash.slice(1);
-    if (pageNames[initialPage]) openPage(initialPage);
+    if (Object.hasOwn(pageNames, initialPage)) openPage(initialPage);
 
     async function refreshStatus() {
       try {
         const data = await api('/api/status');
         const online = data.status === 'online';
         statusEl.textContent = online ? 'En línea' : data.status === 'starting' ? 'Iniciando' : 'Sin conexión';
-        document.querySelector('#bot-name').textContent = data.botName ?? 'El bot todavía no está conectado';
-        document.querySelector('#guilds').textContent = data.guilds ?? '—';
-        document.querySelector('#uptime').textContent = Number.isFinite(data.uptimeSeconds) ? formatDuration(data.uptimeSeconds) : '—';
-        document.querySelector('#sidebar-dot').className = `status-dot ${online ? 'online' : 'offline'}`;
-        document.querySelector('#sidebar-status').textContent = online ? 'Bot conectado' : 'Bot desconectado';
+        query('#bot-name').textContent = data.botName ?? 'El bot todavía no está conectado';
+        query('#guilds').textContent = data.guilds ?? '—';
+        query('#uptime').textContent = Number.isFinite(data.uptimeSeconds) ? formatDuration(data.uptimeSeconds) : '—';
+        query('#sidebar-dot').className = `status-dot ${online ? 'online' : 'offline'}`;
+        query('#sidebar-status').textContent = online ? 'Bot conectado' : 'Bot desconectado';
       } catch {
         statusEl.textContent = 'Sin conexión';
-        document.querySelector('#sidebar-dot').className = 'status-dot offline';
-        document.querySelector('#sidebar-status').textContent = 'Bot desconectado';
+        query('#sidebar-dot').className = 'status-dot offline';
+        query('#sidebar-status').textContent = 'Bot desconectado';
       }
     }
     refreshStatus();
     setInterval(refreshStatus, 15000);
     async function loadSettings() {
       const { settings } = await api('/api/settings');
-      document.querySelector('#activity-text').value = settings.activityText;
-      document.querySelector('#activity-type').value = settings.activityType;
-      document.querySelector('#presence-status').value = settings.presenceStatus;
+      query('#activity-text').value = settings.activityText;
+      query('#activity-type').value = settings.activityType;
+      query('#presence-status').value = settings.presenceStatus;
     }
     async function loadSession() {
       const { user } = await api('/api/session');
-      if (user) document.querySelector('#session-name').textContent = `@${user.username}`;
+      if (user) query('#session-name').textContent = `@${user.username}`;
     }
-    function addIdentityCell(row, { name, detail, avatar, fallback }) {
+    function addIdentityCell(row: HTMLTableRowElement, { name, detail, avatar, fallback }: { name: string; detail: string; avatar: string | null; fallback: string }): void {
       const cell = document.createElement('td');
       const identity = document.createElement('div'); identity.className = 'table-identity';
       if (avatar) {
@@ -67,36 +106,37 @@ const statusEl = document.querySelector('#status');
       const secondary = document.createElement('div'); secondary.className = 'table-secondary'; secondary.textContent = detail;
       labels.append(primary, secondary); identity.append(labels); cell.append(identity); row.append(cell);
     }
-    function openBirthdayEditor(birthday) {
-      const dialog = document.querySelector('#birthday-edit-dialog');
-      document.querySelector('#birthday-edit-guild').value = birthday.guild_id;
-      document.querySelector('#birthday-edit-user').value = birthday.user_id;
-      document.querySelector('#birthday-edit-member').textContent = `${birthday.display_name} · ${birthday.guild_name}`;
-      document.querySelector('#birthday-edit-day').value = birthday.day;
-      document.querySelector('#birthday-edit-month').value = birthday.month;
-      document.querySelector('#birthday-edit-emoji').value = birthday.emoji;
-      document.querySelector('#birthday-edit-role').value = birthday.role_name;
-      const color = /^#[0-9a-f]{6}$/i.test(birthday.color ?? '') ? birthday.color : '#D3FF75';
-      document.querySelector('#birthday-edit-color').value = color;
-      document.querySelector('#birthday-edit-color-value').textContent = color.toUpperCase();
-      const message = document.querySelector('#birthday-edit-message');
+    function openBirthdayEditor(birthday: BirthdayRow): void {
+      const dialog = query('#birthday-edit-dialog');
+      query('#birthday-edit-guild').value = birthday.guild_id;
+      query('#birthday-edit-user').value = birthday.user_id;
+      query('#birthday-edit-member').textContent = `${birthday.display_name} · ${birthday.guild_name}`;
+      query('#birthday-edit-day').value = String(birthday.day);
+      query('#birthday-edit-month').value = String(birthday.month);
+      query('#birthday-edit-emoji').value = birthday.emoji;
+      query('#birthday-edit-role').value = birthday.role_name;
+      const color = birthday.color && /^#[0-9a-f]{6}$/i.test(birthday.color) ? birthday.color : '#D3FF75';
+      query('#birthday-edit-color').value = color;
+      query('#birthday-edit-color-value').textContent = color.toUpperCase();
+      const message = query('#birthday-edit-message');
       message.textContent = '';
       message.className = 'message';
       dialog.showModal();
     }
-    document.querySelectorAll('[data-close-birthday-dialog]').forEach((button) => button.addEventListener('click', () => {
-      document.querySelector('#birthday-edit-dialog').close();
+    queryAll('[data-close-birthday-dialog]').forEach((button) => button.addEventListener('click', () => {
+      query('#birthday-edit-dialog').close();
     }));
-    document.querySelector('#birthday-edit-color').addEventListener('input', (event) => {
-      document.querySelector('#birthday-edit-color-value').textContent = event.target.value.toUpperCase();
+    query('#birthday-edit-color').addEventListener('input', (event) => {
+      query('#birthday-edit-color-value').textContent = (event.currentTarget as HTMLInputElement).value.toUpperCase();
     });
-    document.querySelector('#birthday-edit-form').addEventListener('submit', async (event) => {
+    query('#birthday-edit-form').addEventListener('submit', async (event) => {
       event.preventDefault();
-      const form = event.currentTarget;
-      const button = document.querySelector('#birthday-edit-save');
-      const message = document.querySelector('#birthday-edit-message');
-      const guildId = form.elements.guildId.value;
-      const userId = form.elements.userId.value;
+      const form = event.currentTarget as HTMLFormElement;
+      const button = query('#birthday-edit-save');
+      const message = query('#birthday-edit-message');
+      const field = (name: string): string => (form.elements.namedItem(name) as HTMLInputElement).value;
+      const guildId = field('guildId');
+      const userId = field('userId');
       button.disabled = true;
       message.textContent = 'Guardando cambios…';
       message.className = 'message';
@@ -104,30 +144,30 @@ const statusEl = document.querySelector('#status');
         await api(`/api/bot/guilds/${guildId}/birthdays/${userId}`, {
           method: 'PUT',
           body: JSON.stringify({
-            day: Number(form.elements.day.value),
-            month: Number(form.elements.month.value),
-            emoji: form.elements.emoji.value,
-            roleName: form.elements.roleName.value,
-            color: form.elements.color.value,
+            day: Number(field('day')),
+            month: Number(field('month')),
+            emoji: field('emoji'),
+            roleName: field('roleName'),
+            color: field('color'),
           }),
         });
-        document.querySelector('#birthday-edit-dialog').close();
+        query('#birthday-edit-dialog').close();
         await loadBirthdays();
-      } catch (error) {
-        message.textContent = error.message;
+      } catch (error: unknown) {
+        message.textContent = errorMessage(error);
         message.classList.add('error');
       } finally {
         button.disabled = false;
       }
     });
     async function loadBirthdays() {
-      const message = document.querySelector('#birthday-message');
-      const rows = document.querySelector('#birthday-rows');
+      const message = query('#birthday-message');
+      const rows = query('#birthday-rows');
       message.textContent = 'Cargando registros…';
       message.className = 'message';
       rows.replaceChildren();
       try {
-        const { birthdays } = await api('/api/bot/birthdays');
+        const { birthdays } = await api('/api/bot/birthdays') as { birthdays: BirthdayRow[] };
         for (const birthday of birthdays) {
           const row = document.createElement('tr');
           addIdentityCell(row, { name: birthday.guild_name, detail: `ID ${birthday.guild_id}`, avatar: birthday.guild_icon, fallback: birthday.guild_name?.slice(0, 1)?.toUpperCase() ?? 'D' });
@@ -142,7 +182,7 @@ const statusEl = document.querySelector('#status');
           const emojiCell = document.createElement('td'); emojiCell.className = 'table-emoji'; emojiCell.textContent = birthday.emoji; row.append(emojiCell);
           const roleCell = document.createElement('td'); roleCell.className = 'table-role'; roleCell.textContent = `${birthday.emoji} - ${birthday.role_name}`; row.append(roleCell);
           const colorCell = document.createElement('td');
-          const color = /^#[0-9a-f]{6}$/i.test(birthday.color ?? '') ? birthday.color : '#D3FF75';
+          const color = birthday.color && /^#[0-9a-f]{6}$/i.test(birthday.color) ? birthday.color : '#D3FF75';
           const colorLabel = document.createElement('span'); colorLabel.className = 'birthday-color';
           const swatch = document.createElement('i'); swatch.className = 'birthday-color-swatch'; swatch.style.backgroundColor = color;
           const colorValue = document.createElement('span'); colorValue.textContent = color.toUpperCase();
@@ -161,9 +201,9 @@ const statusEl = document.querySelector('#status');
             try {
               await api(`/api/bot/guilds/${birthday.guild_id}/birthdays/${birthday.user_id}`, { method: 'DELETE' });
               await loadBirthdays();
-            } catch (error) {
-              document.querySelector('#birthday-message').textContent = error.message;
-              document.querySelector('#birthday-message').className = 'message error';
+            } catch (error: unknown) {
+              query('#birthday-message').textContent = errorMessage(error);
+              query('#birthday-message').className = 'message error';
               deleteButton.disabled = false;
             }
           });
@@ -171,25 +211,25 @@ const statusEl = document.querySelector('#status');
           rows.append(row);
         }
         const summary = birthdays.length ? `${birthdays.length} registros` : 'Sin registros';
-        document.querySelector('#birthday-count').textContent = summary;
+        query('#birthday-count').textContent = summary;
         message.textContent = birthdays.length ? '' : 'Todavía no hay cumpleaños registrados.';
-        const overview = document.querySelector('#overview-birthdays');
+        const overview = query('#overview-birthdays');
         overview.textContent = birthdays.length ? `${birthdays.length} cumpleaños registrados en ${new Set(birthdays.map((item) => item.guild_id)).size} servidor(es).` : 'Todavía no hay cumpleaños registrados.';
-      } catch (error) { message.textContent = error.message; message.classList.add('error'); }
+      } catch (error: unknown) { message.textContent = errorMessage(error); message.classList.add('error'); }
     }
-    document.querySelector('#refresh-birthdays').addEventListener('click', () => { loadBirthdays(); window.dispatchEvent(new Event('birthday-tests-refresh')); });
-    const reactionRoleGuild = document.querySelector('#reaction-role-guild');
-    const reactionRoleChannel = document.querySelector('#reaction-role-channel');
-    const reactionRoleOptions = document.querySelector('#reaction-role-options');
-    let reactionRoleCatalog = { roles: [], emojis: [] };
+    query('#refresh-birthdays').addEventListener('click', () => { loadBirthdays(); window.dispatchEvent(new Event('birthday-tests-refresh')); });
+    const reactionRoleGuild = query('#reaction-role-guild');
+    const reactionRoleChannel = query('#reaction-role-channel');
+    const reactionRoleOptions = query('#reaction-role-options');
+    let reactionRoleCatalog: ReactionRoleCatalog = { roles: [], emojis: [] };
     const commonEmojis = ['😀','😃','😄','😁','😆','😅','😂','🙂','😉','😊','😍','🥰','😎','🤔','🙌','👏','👍','👎','❤️','💙','💚','💜','🧡','💛','🔥','✨','⭐','🌟','🎉','🎊','🎂','🎮','🎵','🎨','📚','💬','✅','❌','⚽','🏀','🎯','🌈','☀️','🌙','🍕','☕','🐱','🐶','🦊','🐸','🌸','🍀'];
     async function loadReactionRoleGuilds() {
       try {
         const guilds = await api('/api/bot/guilds');
         reactionRoleGuild.replaceChildren(new Option('Selecciona un servidor', ''));
         for (const guild of guilds) reactionRoleGuild.add(new Option(guild.name, guild.id));
-      } catch (error) {
-        reactionRoleGuild.replaceChildren(new Option(error.message, ''));
+      } catch (error: unknown) {
+        reactionRoleGuild.replaceChildren(new Option(errorMessage(error), ''));
       }
     }
     reactionRoleGuild.addEventListener('change', async () => {
@@ -215,9 +255,9 @@ const statusEl = document.querySelector('#status');
         if (!channels.length) reactionRoleChannel.replaceChildren(new Option('No hay canales de texto disponibles', ''));
         reactionRoleOptions.replaceChildren();
         addReactionRoleOption();
-      } catch (error) {
+      } catch (error: unknown) {
         reactionRoleCatalog = { roles: [], emojis: [] };
-        reactionRoleChannel.replaceChildren(new Option(error.message, ''));
+        reactionRoleChannel.replaceChildren(new Option(errorMessage(error), ''));
       }
     });
     function addReactionRoleOption() {
@@ -236,7 +276,7 @@ const statusEl = document.querySelector('#status');
       const summary = document.createElement('summary'); summary.textContent = '🙂  Elige un emoji'; picker.append(summary);
       const grid = document.createElement('div'); grid.className = 'emoji-picker-grid';
       const emojiInput = document.createElement('input'); emojiInput.type = 'hidden';
-      function addEmojiChoice(value, label, customEmoji = null) {
+      function addEmojiChoice(value: string, label: string, customEmoji: ReactionEmoji | null = null): void {
         const choice = document.createElement('button'); choice.type = 'button'; choice.className = 'emoji-choice'; choice.title = label;
         if (customEmoji) {
           const image = document.createElement('img'); image.src = `https://cdn.discordapp.com/emojis/${customEmoji.id}.${customEmoji.animated ? 'gif' : 'png'}?size=48`; image.alt = label; choice.append(image);
@@ -264,21 +304,21 @@ const statusEl = document.querySelector('#status');
       }
       picker.append(grid); emojiField.append(picker, emojiInput);
       const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'button danger reaction-option-remove'; remove.textContent = 'Quitar';
-      remove.addEventListener('click', () => { row.remove(); refreshEmbedPreview(); document.querySelector('#reaction-role-add-option').disabled = false; });
+      remove.addEventListener('click', () => { row.remove(); refreshEmbedPreview(); query('#reaction-role-add-option').disabled = false; });
       row.append(roleField, emojiField, remove);
       reactionRoleOptions.append(row);
-      document.querySelector('#reaction-role-add-option').disabled = reactionRoleOptions.querySelectorAll('.reaction-option').length >= 20;
+      query('#reaction-role-add-option').disabled = reactionRoleOptions.querySelectorAll('.reaction-option').length >= 20;
       refreshEmbedPreview();
     }
-    document.querySelector('#reaction-role-add-option').addEventListener('click', addReactionRoleOption);
+    query('#reaction-role-add-option').addEventListener('click', addReactionRoleOption);
 
-    const editor = document.querySelector('#reaction-role-description');
-    const previewTitle = document.querySelector('#reaction-role-preview-title');
-    const previewDescription = document.querySelector('#reaction-role-preview-description');
-    const previewBar = document.querySelector('#reaction-role-preview-bar');
-    const escapeHtml = (value) => value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
-    function renderDiscordMarkdown(value) {
-      let html = escapeHtml(value).replace(/&lt;a?:([A-Za-z0-9_]{2,32}):(\d{17,20})&gt;/g, (match, name, id) => {
+    const editor = query('#reaction-role-description');
+    const previewTitle = query('#reaction-role-preview-title');
+    const previewDescription = query('#reaction-role-preview-description');
+    const previewBar = query('#reaction-role-preview-bar');
+    const escapeHtml = (value: string): string => value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character as '&' | '<' | '>' | '"' | "'"]);
+    function renderDiscordMarkdown(value: string): string {
+      let html = escapeHtml(value).replace(/&lt;a?:([A-Za-z0-9_]{2,32}):(\d{17,20})&gt;/g, (match, name: string, id: string) => {
         const emoji = reactionRoleCatalog.emojis.find((item) => item.id === id && item.name === name);
         return emoji ? `<img class="embed-preview-emoji" src="https://cdn.discordapp.com/emojis/${emoji.id}.${emoji.animated ? 'gif' : 'png'}?size=32" alt=":${escapeHtml(name)}:">` : match;
       }).replace(/`([^`]+)`/g, '<code>$1</code>')
@@ -288,38 +328,38 @@ const statusEl = document.querySelector('#status');
       return html.replace(/\n/g, '<br>');
     }
     function refreshEmbedPreview() {
-      const title = document.querySelector('#reaction-role-title-input').value.trim();
+      const title = query('#reaction-role-title-input').value.trim();
       previewTitle.textContent = title || 'Elige tus roles';
       const roleLines = [...reactionRoleOptions.querySelectorAll('.reaction-option')].map((row) => {
-        const emoji = row.querySelector('input[type="hidden"]').value;
-        const role = row.querySelector('select').selectedOptions[0]?.textContent;
+        const emoji = row.querySelector<HTMLInputElement>('input[type="hidden"]')?.value ?? '';
+        const role = row.querySelector<HTMLSelectElement>('select')?.selectedOptions[0]?.textContent;
         return emoji && role && !role.startsWith('Selecciona') && !role.startsWith('Elige primero') ? `${emoji} — **${role}**` : '';
       }).filter(Boolean).join('\n');
       const description = [editor.value || 'Reacciona con el emoji correspondiente para obtener el rol.', roleLines].filter(Boolean).join('\n\n');
       previewDescription.innerHTML = renderDiscordMarkdown(description);
-      const color = document.querySelector('#reaction-role-color').value;
+      const color = query('#reaction-role-color').value;
       previewBar.style.backgroundColor = color;
-      document.querySelector('#reaction-role-color-value').textContent = color.toUpperCase();
+      query('#reaction-role-color-value').textContent = color.toUpperCase();
     }
-    document.querySelector('#reaction-role-title-input').addEventListener('input', refreshEmbedPreview);
+    query('#reaction-role-title-input').addEventListener('input', refreshEmbedPreview);
     editor.addEventListener('input', refreshEmbedPreview);
-    document.querySelector('#reaction-role-color').addEventListener('input', refreshEmbedPreview);
-    const formatTokens = { bold: ['**', '**'], italic: ['*', '*'], underline: ['__', '__'], strike: ['~~', '~~'], code: ['`', '`'], quote: ['> ', ''] };
-    document.querySelectorAll('[data-format]').forEach((button) => button.addEventListener('click', () => {
-      const [before, after] = formatTokens[button.dataset.format];
-      const start = editor.selectionStart; const end = editor.selectionEnd; const selected = editor.value.slice(start, end) || 'texto';
+    query('#reaction-role-color').addEventListener('input', refreshEmbedPreview);
+    const formatTokens: Record<string, [string, string]> = { bold: ['**', '**'], italic: ['*', '*'], underline: ['__', '__'], strike: ['~~', '~~'], code: ['`', '`'], quote: ['> ', ''] };
+    queryAll('[data-format]').forEach((button) => button.addEventListener('click', () => {
+      const [before, after] = formatTokens[button.dataset.format ?? 'bold'] ?? ['**', '**'];
+      const start = editor.selectionStart ?? 0; const end = editor.selectionEnd ?? start; const selected = editor.value.slice(start, end) || 'texto';
       editor.setRangeText(`${before}${selected}${after}`, start, end, 'select'); editor.focus(); editor.dispatchEvent(new Event('input'));
     }));
     addReactionRoleOption();
     refreshEmbedPreview();
     async function loadReactionRoles() {
-      const message = document.querySelector('#reaction-role-list-message');
-      const rows = document.querySelector('#reaction-role-rows');
+      const message = query('#reaction-role-list-message');
+      const rows = query('#reaction-role-rows');
       message.textContent = 'Cargando asociaciones…';
       message.className = 'message';
       rows.replaceChildren();
       try {
-        const mappings = await api('/api/bot/reaction-roles');
+        const mappings = await api('/api/bot/reaction-roles') as ReactionRoleMapping[];
         for (const mapping of mappings) {
           const row = document.createElement('tr');
           const guild = document.createElement('td'); guild.textContent = mapping.guild_name; row.append(guild);
@@ -338,8 +378,8 @@ const statusEl = document.querySelector('#status');
               const query = new URLSearchParams({ emoji: mapping.emoji_display });
               await api(`/api/bot/reaction-roles/${mapping.guild_id}/${mapping.message_id}?${query}`, { method: 'DELETE' });
               await loadReactionRoles();
-            } catch (error) {
-              message.textContent = error.message;
+            } catch (error: unknown) {
+              message.textContent = errorMessage(error);
               message.className = 'message error';
               remove.disabled = false;
             }
@@ -347,19 +387,19 @@ const statusEl = document.querySelector('#status');
           actions.append(remove); row.append(actions); rows.append(row);
         }
         message.textContent = mappings.length ? `${mappings.length} asociaciones` : 'Todavía no hay asociaciones de roles por reacción.';
-      } catch (error) { message.textContent = error.message; message.classList.add('error'); }
+      } catch (error: unknown) { message.textContent = errorMessage(error); message.classList.add('error'); }
     }
-    document.querySelector('#reaction-role-form').addEventListener('submit', async (event) => {
+    query('#reaction-role-form').addEventListener('submit', async (event) => {
       event.preventDefault();
-      const button = document.querySelector('#reaction-role-save');
-      const message = document.querySelector('#reaction-role-form-message');
+      const button = query('#reaction-role-save');
+      const message = query('#reaction-role-form-message');
       button.disabled = true;
       message.textContent = 'Publicando mensaje y añadiendo reacciones…';
       message.className = 'message';
       try {
         const options = [...reactionRoleOptions.querySelectorAll('.reaction-option')].map((row) => ({
-          roleId: row.querySelector('select').value,
-          emoji: row.querySelector('input[type="hidden"]').value,
+          roleId: row.querySelector<HTMLSelectElement>('select')?.value ?? '',
+          emoji: row.querySelector<HTMLInputElement>('input[type="hidden"]')?.value ?? '',
         }));
         if (!options.length || options.some((option) => !option.roleId || !option.emoji)) throw new Error('Completa el rol y el emoji de cada opción.');
         await api('/api/bot/reaction-roles', {
@@ -367,42 +407,42 @@ const statusEl = document.querySelector('#status');
           body: JSON.stringify({
             guildId: reactionRoleGuild.value,
             channelId: reactionRoleChannel.value,
-            title: document.querySelector('#reaction-role-title-input').value,
+            title: query('#reaction-role-title-input').value,
             description: editor.value,
-            color: document.querySelector('#reaction-role-color').value,
+            color: query('#reaction-role-color').value,
             options,
           }),
         });
         message.textContent = 'Mensaje publicado con sus roles y reacciones.';
         message.classList.add('success');
-        document.querySelector('#reaction-role-title-input').value = '';
+        query('#reaction-role-title-input').value = '';
         editor.value = '';
-        document.querySelector('#reaction-role-color').value = '#5865F2';
+        query('#reaction-role-color').value = '#5865F2';
         reactionRoleOptions.replaceChildren();
         addReactionRoleOption();
         refreshEmbedPreview();
         reactionRoleChannel.value = '';
         await loadReactionRoles();
-      } catch (error) { message.textContent = error.message; message.classList.add('error'); }
+      } catch (error: unknown) { message.textContent = errorMessage(error); message.classList.add('error'); }
       finally { button.disabled = false; }
     });
-    document.querySelector('#refresh-reaction-roles').addEventListener('click', loadReactionRoles);
+    query('#refresh-reaction-roles').addEventListener('click', loadReactionRoles);
     loadReactionRoleGuilds();
     loadReactionRoles();
-    document.querySelector('#settings-form').addEventListener('submit', async (event) => {
+    query('#settings-form').addEventListener('submit', async (event) => {
       event.preventDefault();
-      const button = document.querySelector('#save-button'); const message = document.querySelector('#save-message');
+      const button = query('#save-button'); const message = query('#save-message');
       button.disabled = true; message.textContent = 'Guardando…'; message.className = 'message';
       try {
         await api('/api/settings', { method: 'PUT', body: JSON.stringify({
-          activityText: document.querySelector('#activity-text').value,
-          activityType: document.querySelector('#activity-type').value,
-          presenceStatus: document.querySelector('#presence-status').value,
+          activityText: query('#activity-text').value,
+          activityType: query('#activity-type').value,
+          presenceStatus: query('#presence-status').value,
         }) });
         message.textContent = 'Cambios guardados. Se aplicarán en unos segundos.'; message.classList.add('success');
-      } catch (error) { message.textContent = error.message; message.classList.add('error'); }
+      } catch (error: unknown) { message.textContent = errorMessage(error); message.classList.add('error'); }
       finally { button.disabled = false; }
     });
-    document.querySelector('#logout').addEventListener('click', async () => { await fetch('/api/logout', { method: 'POST' }); location.href = '/login'; });
-    loadSession(); loadSettings().catch((error) => { document.querySelector('#save-message').textContent = error.message; });
+    query('#logout').addEventListener('click', async () => { await fetch('/api/logout', { method: 'POST' }); location.href = '/login'; });
+    loadSession(); loadSettings().catch((error: unknown) => { query('#save-message').textContent = errorMessage(error); });
     loadBirthdays();

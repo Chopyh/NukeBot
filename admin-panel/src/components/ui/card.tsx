@@ -1,21 +1,22 @@
-import { cn } from '../../lib/utils.js';
+import type { ComponentProps } from 'react';
+import { cn } from '../../lib/utils';
 
-export function Card({ className, ...props }) {
+export function Card({ className, ...props }: ComponentProps<'section'>) {
   return <section className={cn('rounded-xl border border-border bg-card text-card-foreground shadow-sm', className)} {...props} />;
 }
 
-export function CardHeader({ className, ...props }) {
+export function CardHeader({ className, ...props }: ComponentProps<'div'>) {
   return <div className={cn('flex flex-col gap-1.5 p-5', className)} {...props} />;
 }
 
-export function CardTitle({ className, ...props }) {
+export function CardTitle({ className, ...props }: ComponentProps<'h3'>) {
   return <h3 className={cn('text-base font-semibold leading-none tracking-tight', className)} {...props} />;
 }
 
-export function CardDescription({ className, ...props }) {
+export function CardDescription({ className, ...props }: ComponentProps<'p'>) {
   return <p className={cn('text-sm leading-relaxed text-muted-foreground', className)} {...props} />;
 }
 
-export function CardContent({ className, ...props }) {
+export function CardContent({ className, ...props }: ComponentProps<'div'>) {
   return <div className={cn('p-5 pt-0', className)} {...props} />;
 }

@@ -1,0 +1,13 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "lib": ["DOM", "DOM.Iterable", "ES2022"],
+    "types": ["astro/client", "node", "react", "react-dom"],
+    "noEmit": true
+  },
+  "include": ["astro.config.ts", "server.ts", "src/**/*.ts", "src/**/*.tsx", ".astro/types.d.ts"]
+}

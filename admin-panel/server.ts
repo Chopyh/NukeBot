@@ -1,9 +1,10 @@
 import 'dotenv/config';
 import { randomBytes } from 'node:crypto';
-import { createServer } from 'node:http';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import type { TLSSocket } from 'node:tls';
 import pg from 'pg';
 
 const port = Number(process.env.PORT ?? 3000);
@@ -19,20 +20,22 @@ const pagePath = path.join(staticRoot, 'index.html');
 const loginPagePath = path.join(staticRoot, 'login', 'index.html');
 const defaults = { activityText: '', activityType: 'playing', presenceStatus: 'online' };
 const sessionDurationMs = 12 * 60 * 60 * 1000;
-const sessions = new Map();
-const oauthStates = new Map();
+type AdminUser = { id: string; username: string; globalName: string; avatar: string | null };
+type AdminSession = { expiresAt: number; authorizationCheckedAt: number; user: AdminUser };
+const sessions = new Map<string, AdminSession>();
+const oauthStates = new Map<string, number>();
 
-function required(name) {
+function required(name: string): string {
   const value = process.env[name]?.trim();
   if (!value) throw new Error(`Falta la variable ${name}.`);
   return value;
 }
 
-function cookieToken(request) {
+function cookieToken(request: IncomingMessage): string | null {
   return cookieValue(request, 'nuke_admin_session');
 }
 
-function cookieValue(request, name) {
+function cookieValue(request: IncomingMessage, name: string): string | null {
   const cookieHeader = request.headers.cookie ?? '';
   for (const cookie of cookieHeader.split(';')) {
     const [key, ...value] = cookie.trim().split('=');
@@ -41,7 +44,7 @@ function cookieValue(request, name) {
   return null;
 }
 
-function getSession(request) {
+function getSession(request: IncomingMessage): AdminSession | null {
   const token = cookieToken(request);
   if (!token) return null;
   const session = sessions.get(token);
@@ -53,7 +56,7 @@ function getSession(request) {
   return session;
 }
 
-async function authorized(request) {
+async function authorized(request: IncomingMessage): Promise<boolean> {
   const session = getSession(request);
   if (!session) return false;
   if (Date.now() - session.authorizationCheckedAt < 5 * 60 * 1000) return true;
@@ -64,28 +67,29 @@ async function authorized(request) {
     console.error('No se pudo renovar la autorización del panel:', error);
   }
   if (!stillAuthorized) {
-    sessions.delete(cookieToken(request));
+    const token = cookieToken(request);
+    if (token) sessions.delete(token);
     return false;
   }
   session.authorizationCheckedAt = Date.now();
   return true;
 }
 
-function setSessionCookie(request, response, token) {
-  const secure = request.socket.encrypted || request.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
+function setSessionCookie(request: IncomingMessage, response: ServerResponse, token: string): void {
+  const secure = (request.socket as TLSSocket).encrypted || request.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
   response.setHeader('set-cookie', `nuke_admin_session=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${sessionDurationMs / 1000}${secure}`);
 }
 
-function clearSessionCookie(request, response) {
-  const secure = request.socket.encrypted || request.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
+function clearSessionCookie(request: IncomingMessage, response: ServerResponse): void {
+  const secure = (request.socket as TLSSocket).encrypted || request.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
   response.setHeader('set-cookie', `nuke_admin_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${secure}`);
 }
 
-function redirect(response, location) {
+function redirect(response: ServerResponse, location: string): void {
   response.writeHead(302, { location, 'cache-control': 'no-store' }).end();
 }
 
-async function isGodMember(userId) {
+async function isGodMember(userId: string): Promise<boolean> {
   const result = await fetch(`${botApiUrl}/api/admin/authorization/${encodeURIComponent(userId)}`, {
     headers: { authorization: `Bearer ${botApiToken}` },
     signal: AbortSignal.timeout(8000),
@@ -95,7 +99,7 @@ async function isGodMember(userId) {
   return body.authorized === true;
 }
 
-async function readJson(request, maxBytes = 4096) {
+async function readJson(request: IncomingMessage, maxBytes = 4096): Promise<unknown> {
   const chunks = [];
   let length = 0;
   for await (const chunk of request) {
@@ -106,7 +110,7 @@ async function readJson(request, maxBytes = 4096) {
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 
-function sendJson(response, status, body, headers = {}) {
+function sendJson(response: ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}): void {
   response.writeHead(status, {
     'content-type': 'application/json; charset=utf-8',
     'cache-control': 'no-store',
@@ -135,7 +139,7 @@ const server = createServer(async (request, response) => {
       if (expiresAt <= Date.now()) oauthStates.delete(pendingState);
     }
     oauthStates.set(state, Date.now() + 10 * 60 * 1000);
-    const secure = request.socket.encrypted || request.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
+    const secure = (request.socket as TLSSocket).encrypted || request.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
     response.setHeader('set-cookie', `nuke_oauth_state=${state}; HttpOnly; SameSite=Lax; Path=/auth/discord/callback; Max-Age=600${secure}`);
     const authorizeUrl = new URL('https://discord.com/oauth2/authorize');
     authorizeUrl.searchParams.set('response_type', 'code');
