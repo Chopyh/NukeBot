@@ -1,23 +1,35 @@
 :root {
+  color-scheme: dark !important;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: #e8e8e9;
   background: #101113;
   font-synthesis: none;
-  --bg: #101113;
-  --panel: #151618;
-  --line: #292a2d;
-  --muted: #85868b;
-  --soft: #b9babd;
-  --accent: #d3ff75;
+  --admin-bg: #101113;
+  --admin-panel: #151618;
+  --admin-line: #292a2d;
+  --admin-muted: #a1a2a7;
+  --admin-soft: #c4c5c8;
+  --admin-accent: #d3ff75;
 }
 
 * {
   box-sizing: border-box;
 }
 
+html {
+  color-scheme: dark !important;
+  background: var(--admin-bg);
+}
+
+html:not(.dark) {
+  color-scheme: dark !important;
+}
+
 body {
   min-height: 100vh;
   margin: 0;
+  color: #e8e8e9;
+  background: var(--admin-bg);
 }
 
 button {
@@ -35,7 +47,7 @@ button {
   width: 236px;
   flex-direction: column;
   padding: 22px 14px 16px;
-  border-right: 1px solid var(--line);
+  border-right: 1px solid var(--admin-line);
   background: #121315;
 }
 
@@ -57,14 +69,14 @@ button {
   place-items: center;
   border: 1px solid #44464a;
   border-radius: 8px;
-  color: var(--accent);
+  color: var(--admin-accent);
   font-weight: 800;
 }
 
 .brand small {
   display: block;
   margin-top: 3px;
-  color: var(--muted);
+  color: var(--admin-muted);
   font-size: 10px;
   font-weight: 500;
   letter-spacing: .04em;
@@ -72,7 +84,7 @@ button {
 
 .nav-label {
   margin: 17px 10px 7px;
-  color: #68696e;
+  color: #929399;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: .12em;
@@ -104,20 +116,22 @@ button {
 }
 
 .nav-icon {
+  display: inline-grid;
   width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  place-items: center;
   color: #77797e;
-  text-align: center;
-  font-size: 14px;
 }
 
 .nav-link.active .nav-icon {
-  color: var(--accent);
+  color: var(--admin-accent);
 }
 
 .sidebar-bottom {
   margin-top: auto;
   padding: 14px 10px 0;
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--admin-line);
   color: #77797e;
   font-size: 11px;
 }
@@ -136,7 +150,7 @@ button {
 }
 
 .status-dot.online {
-  background: var(--accent);
+  background: var(--admin-accent);
 }
 
 .status-dot.offline {
@@ -157,18 +171,18 @@ button {
   align-items: center;
   justify-content: space-between;
   padding: 0 36px;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--admin-line);
   background: #101113;
 }
 
 .crumb {
-  color: var(--muted);
+  color: var(--admin-muted);
   font-size: 12px;
 }
 
 .crumb-separator {
   padding: 0 7px;
-  color: #55565a;
+  color: #85868b;
 }
 
 .top-actions {
@@ -184,7 +198,7 @@ button {
 
 .logout {
   padding: 7px 10px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--admin-line);
   border-radius: 5px;
   color: #bdbec1;
   background: transparent;
@@ -228,7 +242,7 @@ h1 {
 
 .subtitle {
   margin: 7px 0 0;
-  color: var(--muted);
+  color: var(--admin-muted);
   font-size: 12px;
 }
 
@@ -241,7 +255,7 @@ h1 {
 
 .section-note {
   margin: 5px 0 0;
-  color: var(--muted);
+  color: var(--admin-muted);
   font-size: 11px;
   line-height: 1.5;
 }
@@ -249,8 +263,8 @@ h1 {
 .stats {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  border-top: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
+  border-top: 1px solid var(--admin-line);
+  border-bottom: 1px solid var(--admin-line);
 }
 
 .stat {
@@ -259,11 +273,11 @@ h1 {
 
 .stat + .stat {
   padding-left: 20px;
-  border-left: 1px solid var(--line);
+  border-left: 1px solid var(--admin-line);
 }
 
 .stat-label {
-  color: var(--muted);
+  color: var(--admin-muted);
   font-size: 11px;
 }
 
@@ -277,7 +291,7 @@ h1 {
 
 .stat-detail {
   margin-top: 4px;
-  color: #6f7075;
+  color: #929399;
   font-size: 10px;
 }
 
@@ -295,7 +309,7 @@ h1 {
 
 .flat-table {
   width: 100%;
-  min-width: 760px;
+  min-width: 1020px;
   border-collapse: collapse;
   text-align: left;
   font-size: 13px;
@@ -303,8 +317,8 @@ h1 {
 
 .flat-table th {
   padding: 12px 16px;
-  border-top: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
+  border-top: 1px solid var(--admin-line);
+  border-bottom: 1px solid var(--admin-line);
   color: #929399;
   font-size: 11px;
   font-weight: 600;
@@ -333,7 +347,7 @@ h1 {
 
 .table-wrap {
   overflow-x: auto;
-  border: 1px solid var(--line);
+  border: 1px solid var(--admin-line);
   border-radius: 8px;
   background: #131416;
 }
@@ -475,9 +489,9 @@ h1 {
 }
 
 .button.primary {
-  border-color: var(--accent);
+  border-color: var(--admin-accent);
   color: #171a10;
-  background: var(--accent);
+  background: var(--admin-accent);
   font-weight: 700;
 }
 
@@ -494,6 +508,106 @@ h1 {
 .button:disabled {
   cursor: not-allowed;
   opacity: .45;
+}
+
+.birthday-actions {
+  display: flex;
+  gap: 7px;
+  white-space: nowrap;
+}
+
+.birthday-action {
+  min-height: 30px;
+  padding: 0 9px;
+}
+
+.birthday-color {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #c4c5c8;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.birthday-color-swatch {
+  width: 17px;
+  height: 17px;
+  border: 1px solid #ffffff40;
+  border-radius: 50%;
+}
+
+.birthday-dialog {
+  width: min(calc(100% - 32px), 480px);
+  max-height: min(88vh, 700px);
+  padding: 0;
+  overflow: auto;
+  border: 1px solid #383a3e;
+  border-radius: 12px;
+  color: #e8e8e9;
+  background: #151618;
+  box-shadow: 0 24px 80px #0009;
+}
+
+.birthday-dialog::backdrop {
+  background: #000a;
+  backdrop-filter: blur(3px);
+}
+
+.birthday-edit-form {
+  display: grid;
+  gap: 16px;
+  padding: 22px;
+}
+
+.birthday-dialog-heading,
+.birthday-dialog-actions,
+.birthday-color-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.birthday-dialog-close {
+  min-width: 34px;
+  padding: 0;
+  font-size: 20px;
+}
+
+.birthday-edit-form .field input:not([type="color"]) {
+  width: 100%;
+  min-height: 38px;
+  padding: 0 11px;
+  border: 1px solid #35363a;
+  border-radius: 6px;
+  outline: none;
+  color: #e6e6e7;
+  background: #111214;
+  font-size: 13px;
+}
+
+.birthday-edit-form .field input:focus-visible {
+  border-color: #919b72;
+}
+
+.birthday-color-field {
+  justify-content: flex-start;
+  color: #c4c5c8;
+}
+
+.birthday-color-field input {
+  width: 48px;
+  height: 34px;
+  padding: 2px;
+  border: 1px solid #35363a;
+  border-radius: 6px;
+  background: #111214;
+}
+
+.birthday-dialog-actions {
+  justify-content: flex-end;
+  margin-top: 3px;
 }
 
 .message {
@@ -521,7 +635,7 @@ h1 {
 
 footer {
   margin-top: 38px;
-  color: #626368;
+  color: #85868b;
   font-size: 10px;
 }
 
@@ -532,7 +646,7 @@ footer {
     height: auto;
     padding: 12px;
     border-right: 0;
-    border-bottom: 1px solid var(--line);
+    border-bottom: 1px solid var(--admin-line);
   }
 
   .brand {

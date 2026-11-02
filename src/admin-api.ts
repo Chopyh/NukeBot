@@ -1,9 +1,9 @@
-import { timingSafeEqual, createHash } from 'node:crypto';
+import { timingSafeEqual, createHash, randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
 import type { Client } from 'discord.js';
 import type { Pool } from 'pg';
 import { readSettings, saveSettings } from './settings.js';
-import { cancelBirthdayTest, startBirthdayTest } from './birthdays.js';
+import { cancelBirthdayTest, removeBirthdayRegistration, startBirthdayTest, updateBirthdayRegistration } from './birthdays.js';
 
 function safeEqual(left: string, right: string): boolean {
   return timingSafeEqual(createHash('sha256').update(left).digest(), createHash('sha256').update(right).digest());
@@ -100,6 +100,7 @@ export function startAdminApi(client: Client, pool: Pool): void {
             registration.month,
             registration.emoji,
             registration.role_name,
+            registration.color,
             active.ends_at
           FROM birthday_registrations AS registration
           LEFT JOIN LATERAL (
@@ -116,12 +117,13 @@ export function startAdminApi(client: Client, pool: Pool): void {
 
         const birthdays = await Promise.all(result.rows.map(async (birthday) => {
           const guild = client.guilds.cache.get(birthday.guild_id);
-          if (!guild) return { ...birthday, guild_name: birthday.guild_id, display_name: 'Servidor no disponible', username: null, avatar: null };
+          if (!guild) return { ...birthday, guild_name: birthday.guild_id, guild_icon: null, display_name: 'Servidor no disponible', username: null, avatar: null };
           const member = guild.members.cache.get(birthday.user_id)
             ?? await guild.members.fetch(birthday.user_id).catch(() => null);
           return {
             ...birthday,
             guild_name: guild.name,
+            guild_icon: guild.iconURL({ size: 64 }),
             display_name: member?.displayName ?? 'Miembro no disponible',
             username: member?.user.username ?? null,
             avatar: member?.user.displayAvatarURL({ size: 64 }) ?? null,
@@ -131,6 +133,52 @@ export function startAdminApi(client: Client, pool: Pool): void {
       } catch (error) {
         console.error('No se pudieron consultar los cumpleaños:', error);
         sendJson(response, 503, { error: 'No se pudieron consultar los cumpleaños registrados.' });
+      }
+      return;
+    }
+
+    const birthdayRegistrationMatch = /^\/api\/admin\/guilds\/(\d{17,20})\/birthdays\/(\d{17,20})$/.exec(url.pathname);
+    if (birthdayRegistrationMatch && request.method === 'PUT') {
+      try {
+        const body = await readJson(request) as Record<string, unknown>;
+        if (!Number.isInteger(body.day) || !Number.isInteger(body.month) ||
+            typeof body.emoji !== 'string' || typeof body.roleName !== 'string' || typeof body.color !== 'string') {
+          sendJson(response, 400, { error: 'Indica fecha, emoji, nombre del rol y color.' });
+          return;
+        }
+        const guild = await client.guilds.fetch(birthdayRegistrationMatch[1]!);
+        const updated = await updateBirthdayRegistration(guild, pool, birthdayRegistrationMatch[2]!, {
+          day: body.day as number,
+          month: body.month as number,
+          emoji: body.emoji,
+          roleName: body.roleName,
+          color: body.color,
+        });
+        sendJson(response, updated ? 200 : 404, updated ? { ok: true } : { error: 'No se encontró ese registro de cumpleaños.' });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'No se pudo modificar el registro.';
+        console.error('No se pudo modificar el registro de cumpleaños:', error);
+        sendJson(response, 400, { error: message });
+      }
+      return;
+    }
+
+    if (birthdayRegistrationMatch && request.method === 'DELETE') {
+      try {
+        const guild = await client.guilds.fetch(birthdayRegistrationMatch[1]!);
+        const exists = await pool.query(
+          'SELECT 1 FROM birthday_registrations WHERE guild_id = $1 AND user_id = $2',
+          [guild.id, birthdayRegistrationMatch[2]!],
+        );
+        if (!exists.rowCount) {
+          sendJson(response, 404, { error: 'No se encontró ese registro de cumpleaños.' });
+          return;
+        }
+        await removeBirthdayRegistration(guild, pool, birthdayRegistrationMatch[2]!);
+        sendJson(response, 200, { ok: true });
+      } catch (error) {
+        console.error('No se pudo eliminar el registro de cumpleaños:', error);
+        sendJson(response, 500, { error: 'No se pudo eliminar el registro de cumpleaños.' });
       }
       return;
     }
@@ -174,6 +222,12 @@ export function startAdminApi(client: Client, pool: Pool): void {
     }
 
     if (request.method === 'POST' && url.pathname === '/api/admin/birthday-tests') {
+      const headerRequestId = request.headers['x-request-id'];
+      const requestId = typeof headerRequestId === 'string' && /^[a-zA-Z0-9-]{1,80}$/.test(headerRequestId)
+        ? headerRequestId
+        : randomUUID();
+      const startedAt = Date.now();
+      console.info(`[birthday-test:${requestId}] api-start method=POST path=${url.pathname}`);
       try {
         const body = await readJson(request) as Record<string, unknown>;
         if (typeof body.guildId !== 'string' || !/^\d{17,20}$/.test(body.guildId) ||
@@ -187,25 +241,35 @@ export function startAdminApi(client: Client, pool: Pool): void {
           userId: body.userId,
           emoji: body.emoji,
           roleName: body.roleName,
+          color: typeof body.color === 'string' ? body.color : '#D3FF75',
+          requestId,
         });
+        console.info(`[birthday-test:${requestId}] api-complete status=201 duration_ms=${Date.now() - startedAt}`);
         sendJson(response, 201, test);
       } catch (error) {
         const message = error instanceof Error ? error.message : 'No se pudo iniciar la prueba.';
-        console.error('No se pudo iniciar la prueba de cumpleaños:', error);
-        sendJson(response, 400, { error: message });
+        console.error(`[birthday-test:${requestId}] api-failed status=400 duration_ms=${Date.now() - startedAt} message=${message}`, error);
+        sendJson(response, 400, { error: message, requestId });
       }
       return;
     }
 
     const cancelTestMatch = /^\/api\/admin\/guilds\/(\d{17,20})\/birthday-tests\/([0-9a-f-]{36})$/i.exec(url.pathname);
     if (request.method === 'DELETE' && cancelTestMatch) {
+      const headerRequestId = request.headers['x-request-id'];
+      const requestId = typeof headerRequestId === 'string' && /^[a-zA-Z0-9-]{1,80}$/.test(headerRequestId)
+        ? headerRequestId
+        : randomUUID();
+      const startedAt = Date.now();
+      console.info(`[birthday-test:${requestId}] cancel-start guild=${cancelTestMatch[1]} test=${cancelTestMatch[2]}`);
       try {
         const guild = await client.guilds.fetch(cancelTestMatch[1]!);
-        const cancelled = await cancelBirthdayTest(guild, pool, cancelTestMatch[2]!);
+        const cancelled = await cancelBirthdayTest(guild, pool, cancelTestMatch[2]!, requestId);
+        console.info(`[birthday-test:${requestId}] cancel-complete cancelled=${cancelled} duration_ms=${Date.now() - startedAt}`);
         sendJson(response, cancelled ? 200 : 404, cancelled ? { ok: true } : { error: 'La prueba ya no está activa.' });
       } catch (error) {
-        console.error('No se pudo cancelar la prueba de cumpleaños:', error);
-        sendJson(response, 500, { error: 'No se pudieron revertir los cambios. Revisa los permisos del bot.' });
+        console.error(`[birthday-test:${requestId}] cancel-failed duration_ms=${Date.now() - startedAt}`, error);
+        sendJson(response, 500, { error: 'No se pudieron revertir los cambios. Revisa los permisos del bot.', requestId });
       }
       return;
     }

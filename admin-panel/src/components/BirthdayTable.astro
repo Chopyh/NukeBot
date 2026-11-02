@@ -15,11 +15,31 @@
           <th scope="col">Fecha</th>
           <th scope="col">Emoji</th>
           <th scope="col">Rol de cumpleaños</th>
+          <th scope="col">Color del rol</th>
           <th scope="col">Estado</th>
+          <th scope="col">Acciones</th>
         </tr>
       </thead>
       <tbody id="birthday-rows"></tbody>
     </table>
   </div>
   <p id="birthday-message" class="message" role="status" aria-live="polite">Cargando cumpleaños…</p>
+
+  <dialog id="birthday-edit-dialog" class="birthday-dialog">
+    <form id="birthday-edit-form" class="birthday-edit-form">
+      <div class="birthday-dialog-heading">
+        <div><h2 class="section-title">Editar cumpleaños</h2><p class="section-note" id="birthday-edit-member"></p></div>
+        <button class="button birthday-dialog-close" type="button" data-close-birthday-dialog aria-label="Cerrar">×</button>
+      </div>
+      <label class="field" for="birthday-edit-day">Día<input id="birthday-edit-day" name="day" type="number" min="1" max="31" required /></label>
+      <label class="field" for="birthday-edit-month">Mes<input id="birthday-edit-month" name="month" type="number" min="1" max="12" required /></label>
+      <label class="field" for="birthday-edit-emoji">Emoji<input id="birthday-edit-emoji" name="emoji" maxlength="64" required /></label>
+      <label class="field" for="birthday-edit-role">Nombre del rol<input id="birthday-edit-role" name="roleName" maxlength="100" required /></label>
+      <label class="field" for="birthday-edit-color">Color del rol<div class="birthday-color-field"><input id="birthday-edit-color" name="color" type="color" required /><output id="birthday-edit-color-value">#D3FF75</output></div></label>
+      <p id="birthday-edit-message" class="message" role="status" aria-live="polite"></p>
+      <div class="birthday-dialog-actions"><button class="button" type="button" data-close-birthday-dialog>Cancelar</button><button class="button primary" id="birthday-edit-save" type="submit">Guardar</button></div>
+      <input type="hidden" id="birthday-edit-guild" name="guildId" />
+      <input type="hidden" id="birthday-edit-user" name="userId" />
+    </form>
+  </dialog>
 </section>

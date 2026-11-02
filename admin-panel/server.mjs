@@ -274,10 +274,13 @@ const server = createServer(async (request, response) => {
   const botProxyPath = url.pathname.startsWith('/api/bot/') ? url.pathname.slice('/api/bot'.length) : '';
   const allowedBotRoute = botProxyPath === '/guilds'
     || botProxyPath === '/birthdays'
+    || /^\/guilds\/\d{17,20}\/birthdays\/\d{17,20}$/.test(botProxyPath)
     || /^\/guilds\/\d{17,20}\/members$/.test(botProxyPath)
     || botProxyPath === '/birthday-tests'
     || /^\/guilds\/\d{17,20}\/birthday-tests\/[0-9a-f-]{36}$/i.test(botProxyPath);
   if (allowedBotRoute) {
+    const requestId = randomBytes(12).toString('hex');
+    const startedAt = Date.now();
     try {
       // DELETE routes such as birthday-test cancellation intentionally have no body.
       // Parsing an empty request stream with readJson throws "Unexpected end of JSON input".
@@ -288,19 +291,26 @@ const server = createServer(async (request, response) => {
         method,
         headers: {
           authorization: `Bearer ${botApiToken}`,
+          'x-request-id': requestId,
           ...(body ? { 'content-type': 'application/json' } : {}),
         },
         ...(body ? { body } : {}),
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.timeout(120000),
       });
       const content = await upstream.text();
+      const durationMs = Date.now() - startedAt;
+      if (upstream.ok) console.info(`[admin-proxy:${requestId}] ${method} ${botProxyPath} status=${upstream.status} duration_ms=${durationMs}`);
+      else console.error(`[admin-proxy:${requestId}] ${method} ${botProxyPath} status=${upstream.status} duration_ms=${durationMs} response=${content.slice(0, 1000)}`);
       response.writeHead(upstream.status, {
         'content-type': upstream.headers.get('content-type') ?? 'application/json; charset=utf-8',
+        'x-request-id': requestId,
         'cache-control': 'no-store',
       }).end(content);
     } catch (error) {
       const status = error instanceof RangeError ? 413 : 503;
-      sendJson(response, status, { error: error instanceof Error ? error.message : 'No hay conexión con el bot.' });
+      const message = error instanceof Error ? error.message : 'No hay conexión con el bot.';
+      console.error(`[admin-proxy:${requestId}] ${request.method} ${botProxyPath} failed duration_ms=${Date.now() - startedAt} message=${message}`, error);
+      sendJson(response, status, { error: message, requestId });
     }
     return;
   }
@@ -347,6 +357,7 @@ const server = createServer(async (request, response) => {
           registration.month,
           registration.emoji,
           registration.role_name,
+          registration.color,
           active.ends_at
         FROM birthday_registrations AS registration
         LEFT JOIN LATERAL (

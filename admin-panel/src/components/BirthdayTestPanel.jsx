@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
+import { MorphIcon } from 'morphicons/react';
 import {
   Cake, Check, ChevronDown, Clock3, LoaderCircle, RotateCcw, Search,
   ShieldCheck, Sparkles, UserRoundSearch, UsersRound,
-} from 'lucide-react';
+} from '../lib/icons.js';
 import { Badge } from './ui/badge.jsx';
 import { Button } from './ui/button.jsx';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card.jsx';
@@ -24,8 +25,16 @@ async function api(path, options = {}) {
     window.location.href = '/login';
     throw new Error('La sesión expiró.');
   }
-  if (!response.ok) throw new Error(data.error ?? 'No se pudo completar la solicitud.');
+  if (!response.ok) {
+    const error = new Error(data.error ?? 'No se pudo completar la solicitud.');
+    error.requestId = data.requestId ?? response.headers.get('x-request-id');
+    throw error;
+  }
   return data;
+}
+
+function describeError(error) {
+  return error.requestId ? `${error.message} (referencia: ${error.requestId})` : error.message;
 }
 
 function Avatar({ member, large = false }) {
@@ -39,7 +48,7 @@ function EmptyResults({ icon: Icon, title, detail }) {
   return (
     <div className="grid min-h-40 place-items-center rounded-xl border border-dashed border-border bg-background/60 px-5 py-8 text-center">
       <div>
-        <span className="mx-auto mb-3 grid size-10 place-items-center rounded-full bg-secondary text-muted-foreground"><Icon size={18} /></span>
+        <span className="mx-auto mb-3 grid size-10 place-items-center rounded-full bg-secondary text-muted-foreground"><MorphIcon icon={Icon} size={18} /></span>
         <p className="text-sm font-medium text-foreground">{title}</p>
         <p className="mt-1 text-xs text-muted-foreground">{detail}</p>
       </div>
@@ -56,6 +65,7 @@ export default function BirthdayTestPanel() {
   const [member, setMember] = useState(null);
   const [emoji, setEmoji] = useState('🎂');
   const [roleName, setRoleName] = useState('');
+  const [color, setColor] = useState('#D3FF75');
   const [tests, setTests] = useState([]);
   const [loadingGuilds, setLoadingGuilds] = useState(true);
   const [searching, setSearching] = useState(false);
@@ -78,7 +88,7 @@ export default function BirthdayTestPanel() {
         setBirthdays(birthdayResult.birthdays);
         if (serverList.length === 1) setGuildId(serverList[0].id);
       })
-      .catch((fetchError) => active && setError(fetchError.message))
+      .catch((fetchError) => active && setError(describeError(fetchError)))
       .finally(() => active && setLoadingGuilds(false));
     return () => { active = false; };
   }, []);
@@ -88,7 +98,7 @@ export default function BirthdayTestPanel() {
       const result = await api('/api/bot/birthday-tests');
       setTests(result.filter((test) => !guildId || test.guild_id === guildId));
     } catch (fetchError) {
-      setError(fetchError.message);
+      setError(describeError(fetchError));
     }
   }
 
@@ -104,6 +114,7 @@ export default function BirthdayTestPanel() {
     setMembers([]);
     setMember(null);
     setRoleName('');
+    setColor('#D3FF75');
     if (!guildId || query.trim().length < 2) {
       setSearching(false);
       return undefined;
@@ -117,7 +128,7 @@ export default function BirthdayTestPanel() {
         const result = await api(path, { signal: controller.signal });
         setMembers(result);
       } catch (fetchError) {
-        if (fetchError.name !== 'AbortError') setError(fetchError.message);
+        if (fetchError.name !== 'AbortError') setError(describeError(fetchError));
       } finally {
         if (!controller.signal.aborted) setSearching(false);
       }
@@ -134,6 +145,7 @@ export default function BirthdayTestPanel() {
     const birthday = birthdays.find((item) => item.guild_id === guildId && item.user_id === member.id);
     setEmoji(birthday?.emoji ?? '🎂');
     setRoleName(birthday?.role_name ?? 'Cumpleañero ' + member.displayName);
+    setColor(birthday?.color ?? '#D3FF75');
   }, [member, birthdays, guildId]);
 
   async function startTest() {
@@ -144,12 +156,12 @@ export default function BirthdayTestPanel() {
     try {
       await api('/api/bot/birthday-tests', {
         method: 'POST',
-        body: JSON.stringify({ guildId, userId: member.id, emoji, roleName }),
+        body: JSON.stringify({ guildId, userId: member.id, emoji, roleName, color }),
       });
       setNotice('Prueba iniciada. Puedes restaurar los cambios desde la lista de pruebas activas.');
       await loadTests();
     } catch (fetchError) {
-      setError(fetchError.message);
+      setError(describeError(fetchError));
     } finally {
       setStarting(false);
     }
@@ -165,7 +177,7 @@ export default function BirthdayTestPanel() {
       const result = await api('/api/bot/birthdays');
       setBirthdays(result.birthdays);
     } catch (fetchError) {
-      setError(fetchError.message);
+      setError(describeError(fetchError));
     } finally {
       setBusyTestId('');
     }
@@ -178,7 +190,7 @@ export default function BirthdayTestPanel() {
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="flex items-start gap-4">
               <div className="grid size-11 shrink-0 place-items-center rounded-xl border border-primary/15 bg-primary/10 text-primary">
-                <Cake size={20} />
+                <MorphIcon icon={Cake} size={20} />
               </div>
               <div>
                 <CardTitle className="text-lg">Prueba de cumpleaños</CardTitle>
@@ -188,7 +200,7 @@ export default function BirthdayTestPanel() {
               </div>
             </div>
             <Badge variant="outline" className="gap-1.5 border-border bg-background/50 px-3 py-1.5 text-muted-foreground">
-              <Clock3 size={13} /> Hasta 10 minutos
+              <MorphIcon icon={Clock3} size={13} /> Hasta 10 minutos
             </Badge>
           </div>
         </CardHeader>
@@ -208,14 +220,14 @@ export default function BirthdayTestPanel() {
                   <option value="">{loadingGuilds ? 'Cargando servidores…' : 'Selecciona un servidor'}</option>
                   {guilds.map((guild) => <option key={guild.id} value={guild.id}>{guild.name} · {guild.memberCount} miembros</option>)}
                 </select>
-                <ChevronDown size={15} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <MorphIcon icon={ChevronDown} size={15} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
               </div>
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="member-query">Buscar usuario</Label>
               <div className="relative">
-                <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <MorphIcon icon={Search} size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   id="member-query"
                   className="pl-9 pr-10"
@@ -226,7 +238,7 @@ export default function BirthdayTestPanel() {
                   disabled={!guildId}
                   autoComplete="off"
                 />
-                {searching && <LoaderCircle size={16} className="absolute right-3 top-1/2 animate-spin text-muted-foreground" />}
+                {searching && <MorphIcon icon={LoaderCircle} size={16} className="absolute right-3 top-1/2 animate-spin text-muted-foreground" />}
               </div>
             </div>
 
@@ -241,7 +253,7 @@ export default function BirthdayTestPanel() {
                 <EmptyResults icon={UserRoundSearch} title="Busca un miembro" detail="Escribe al menos dos caracteres para ver resultados." />
               ) : searching ? (
                 <div className="grid min-h-40 place-items-center rounded-xl border border-border bg-background/60 text-sm text-muted-foreground">
-                  <span className="flex items-center gap-2"><LoaderCircle size={16} className="animate-spin" /> Buscando miembros…</span>
+                  <span className="flex items-center gap-2"><MorphIcon icon={LoaderCircle} size={16} className="animate-spin" /> Buscando miembros…</span>
                 </div>
               ) : members.length === 0 ? (
                 <EmptyResults icon={Search} title="No hay coincidencias" detail="Prueba con otro nombre o apodo." />
@@ -264,7 +276,7 @@ export default function BirthdayTestPanel() {
                         <span className="block truncate text-sm font-medium text-foreground">{result.displayName}</span>
                         <span className="mt-0.5 block truncate text-xs text-muted-foreground">@{result.username} · {result.id}</span>
                       </span>
-                      {member?.id === result.id && <Check size={16} className="shrink-0 text-primary" />}
+                      {member?.id === result.id && <MorphIcon icon={Check} size={16} className="shrink-0 text-primary" />}
                     </button>
                   ))}
                 </div>
@@ -286,11 +298,11 @@ export default function BirthdayTestPanel() {
                       <p className="truncate text-sm font-semibold text-foreground">{member.displayName}</p>
                       <p className="mt-1 truncate text-xs text-muted-foreground">@{member.username}</p>
                     </div>
-                    <Badge variant="success" className="gap-1"><Check size={12} /> Listo</Badge>
+                    <Badge variant="success" className="gap-1"><MorphIcon icon={Check} size={12} /> Listo</Badge>
                   </>
                 ) : (
                   <>
-                    <div className="grid size-11 shrink-0 place-items-center rounded-full bg-secondary text-muted-foreground"><UserRoundSearch size={18} /></div>
+                    <div className="grid size-11 shrink-0 place-items-center rounded-full bg-secondary text-muted-foreground"><MorphIcon icon={UserRoundSearch} size={18} /></div>
                     <p className="text-sm text-muted-foreground">Selecciona un miembro de los resultados.</p>
                   </>
                 )}
@@ -310,20 +322,29 @@ export default function BirthdayTestPanel() {
               </div>
             </div>
 
+            <div className="space-y-2">
+              <Label htmlFor="test-color">Color del rol</Label>
+              <div className="flex items-center gap-3">
+                <Input id="test-color" type="color" className="h-10 w-16 cursor-pointer p-1" value={color} onChange={(event) => setColor(event.target.value)} />
+                <span className="text-xs text-muted-foreground">{color.toUpperCase()}</span>
+              </div>
+              <p className="text-xs text-muted-foreground">Se carga automáticamente al elegir un usuario registrado.</p>
+            </div>
+
             {selectedBirthday && (
               <div className="flex items-center gap-2 rounded-lg bg-secondary/70 px-3 py-2.5 text-xs text-secondary-foreground">
-                <Sparkles size={14} className="shrink-0 text-primary" />
+                <MorphIcon icon={Sparkles} size={14} className="shrink-0 text-primary" />
                 <span>Se han cargado los datos del cumpleaños guardado.</span>
               </div>
             )}
 
             <div className="mt-auto space-y-3 border-t border-border pt-5">
               <Button className="w-full sm:w-auto" onClick={startTest} disabled={!member || !guildId || starting || !emoji.trim() || !roleName.trim()}>
-                {starting ? <LoaderCircle size={16} className="animate-spin" /> : <Sparkles size={16} />}
+                <MorphIcon icon={starting ? LoaderCircle : Sparkles} size={16} className={starting ? 'animate-spin' : ''} />
                 {starting ? 'Iniciando prueba…' : 'Iniciar prueba'}
               </Button>
               {error && <p className="text-sm text-red-300" role="alert">{error}</p>}
-              {notice && <p className="flex items-start gap-2 text-sm text-emerald-300" role="status"><ShieldCheck size={16} className="mt-0.5 shrink-0" />{notice}</p>}
+              {notice && <p className="flex items-start gap-2 text-sm text-emerald-300" role="status"><MorphIcon icon={ShieldCheck} size={16} className="mt-0.5 shrink-0" />{notice}</p>}
             </div>
           </div>
         </CardContent>
@@ -341,7 +362,7 @@ export default function BirthdayTestPanel() {
           {tests.length === 0 ? (
             <div className="grid min-h-28 place-items-center px-6 py-8 text-center">
               <div>
-                <div className="mx-auto mb-2 grid size-9 place-items-center rounded-full bg-secondary text-muted-foreground"><Clock3 size={16} /></div>
+                <div className="mx-auto mb-2 grid size-9 place-items-center rounded-full bg-secondary text-muted-foreground"><MorphIcon icon={Clock3} size={16} /></div>
                 <p className="text-sm font-medium text-foreground">No hay pruebas activas</p>
                 <p className="mt-1 text-xs text-muted-foreground">Cuando inicies una, aparecerá aquí.</p>
               </div>
@@ -358,7 +379,7 @@ export default function BirthdayTestPanel() {
                     </div>
                   </div>
                   <Button variant="outline" size="sm" onClick={() => cancelTest(test)} disabled={busyTestId === test.test_id}>
-                    {busyTestId === test.test_id ? <LoaderCircle size={14} className="animate-spin" /> : <RotateCcw size={14} />}
+                    <MorphIcon icon={busyTestId === test.test_id ? LoaderCircle : RotateCcw} size={14} className={busyTestId === test.test_id ? 'animate-spin' : ''} />
                     Restaurar
                   </Button>
                 </div>

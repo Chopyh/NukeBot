@@ -65,6 +65,59 @@ const statusEl = document.querySelector('#status');
       const secondary = document.createElement('div'); secondary.className = 'table-secondary'; secondary.textContent = detail;
       labels.append(primary, secondary); identity.append(labels); cell.append(identity); row.append(cell);
     }
+    function openBirthdayEditor(birthday) {
+      const dialog = document.querySelector('#birthday-edit-dialog');
+      document.querySelector('#birthday-edit-guild').value = birthday.guild_id;
+      document.querySelector('#birthday-edit-user').value = birthday.user_id;
+      document.querySelector('#birthday-edit-member').textContent = `${birthday.display_name} · ${birthday.guild_name}`;
+      document.querySelector('#birthday-edit-day').value = birthday.day;
+      document.querySelector('#birthday-edit-month').value = birthday.month;
+      document.querySelector('#birthday-edit-emoji').value = birthday.emoji;
+      document.querySelector('#birthday-edit-role').value = birthday.role_name;
+      const color = /^#[0-9a-f]{6}$/i.test(birthday.color ?? '') ? birthday.color : '#D3FF75';
+      document.querySelector('#birthday-edit-color').value = color;
+      document.querySelector('#birthday-edit-color-value').textContent = color.toUpperCase();
+      const message = document.querySelector('#birthday-edit-message');
+      message.textContent = '';
+      message.className = 'message';
+      dialog.showModal();
+    }
+    document.querySelectorAll('[data-close-birthday-dialog]').forEach((button) => button.addEventListener('click', () => {
+      document.querySelector('#birthday-edit-dialog').close();
+    }));
+    document.querySelector('#birthday-edit-color').addEventListener('input', (event) => {
+      document.querySelector('#birthday-edit-color-value').textContent = event.target.value.toUpperCase();
+    });
+    document.querySelector('#birthday-edit-form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const button = document.querySelector('#birthday-edit-save');
+      const message = document.querySelector('#birthday-edit-message');
+      const guildId = form.elements.guildId.value;
+      const userId = form.elements.userId.value;
+      button.disabled = true;
+      message.textContent = 'Guardando cambios…';
+      message.className = 'message';
+      try {
+        await api(`/api/bot/guilds/${guildId}/birthdays/${userId}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            day: Number(form.elements.day.value),
+            month: Number(form.elements.month.value),
+            emoji: form.elements.emoji.value,
+            roleName: form.elements.roleName.value,
+            color: form.elements.color.value,
+          }),
+        });
+        document.querySelector('#birthday-edit-dialog').close();
+        await loadBirthdays();
+      } catch (error) {
+        message.textContent = error.message;
+        message.classList.add('error');
+      } finally {
+        button.disabled = false;
+      }
+    });
     async function loadBirthdays() {
       const message = document.querySelector('#birthday-message');
       const rows = document.querySelector('#birthday-rows');
@@ -75,7 +128,7 @@ const statusEl = document.querySelector('#status');
         const { birthdays } = await api('/api/bot/birthdays');
         for (const birthday of birthdays) {
           const row = document.createElement('tr');
-          addIdentityCell(row, { name: birthday.guild_name, detail: `ID ${birthday.guild_id}`, fallback: 'D' });
+          addIdentityCell(row, { name: birthday.guild_name, detail: `ID ${birthday.guild_id}`, avatar: birthday.guild_icon, fallback: birthday.guild_name?.slice(0, 1)?.toUpperCase() ?? 'D' });
           addIdentityCell(row, {
             name: birthday.display_name,
             detail: birthday.username ? `@${birthday.username} · ID ${birthday.user_id}` : `ID ${birthday.user_id}`,
@@ -86,9 +139,33 @@ const statusEl = document.querySelector('#status');
           dateCell.textContent = `${String(birthday.day).padStart(2, '0')}/${String(birthday.month).padStart(2, '0')}`; row.append(dateCell);
           const emojiCell = document.createElement('td'); emojiCell.className = 'table-emoji'; emojiCell.textContent = birthday.emoji; row.append(emojiCell);
           const roleCell = document.createElement('td'); roleCell.className = 'table-role'; roleCell.textContent = birthday.role_name; row.append(roleCell);
+          const colorCell = document.createElement('td');
+          const color = /^#[0-9a-f]{6}$/i.test(birthday.color ?? '') ? birthday.color : '#D3FF75';
+          const colorLabel = document.createElement('span'); colorLabel.className = 'birthday-color';
+          const swatch = document.createElement('i'); swatch.className = 'birthday-color-swatch'; swatch.style.backgroundColor = color;
+          const colorValue = document.createElement('span'); colorValue.textContent = color.toUpperCase();
+          colorLabel.append(swatch, colorValue); colorCell.append(colorLabel); row.append(colorCell);
           const statusCell = document.createElement('td');
           const status = document.createElement('span'); status.className = `state-pill ${birthday.ends_at ? 'active' : ''}`; status.textContent = birthday.ends_at ? 'Activo hoy' : 'Registrado';
           statusCell.append(status); row.append(statusCell);
+          const actionsCell = document.createElement('td');
+          const actions = document.createElement('div'); actions.className = 'birthday-actions';
+          const editButton = document.createElement('button'); editButton.type = 'button'; editButton.className = 'button birthday-action'; editButton.textContent = 'Editar';
+          editButton.addEventListener('click', () => openBirthdayEditor(birthday));
+          const deleteButton = document.createElement('button'); deleteButton.type = 'button'; deleteButton.className = 'button danger birthday-action'; deleteButton.textContent = 'Eliminar';
+          deleteButton.addEventListener('click', async () => {
+            if (!window.confirm(`¿Eliminar el cumpleaños de ${birthday.display_name}? Si tiene un rol activo, también se quitará.`)) return;
+            deleteButton.disabled = true;
+            try {
+              await api(`/api/bot/guilds/${birthday.guild_id}/birthdays/${birthday.user_id}`, { method: 'DELETE' });
+              await loadBirthdays();
+            } catch (error) {
+              document.querySelector('#birthday-message').textContent = error.message;
+              document.querySelector('#birthday-message').className = 'message error';
+              deleteButton.disabled = false;
+            }
+          });
+          actions.append(editButton, deleteButton); actionsCell.append(actions); row.append(actionsCell);
           rows.append(row);
         }
         const summary = birthdays.length ? `${birthdays.length} registros` : 'Sin registros';
