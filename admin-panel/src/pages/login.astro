@@ -1,5 +1,6 @@
 ---
 import '../styles/login.css';
+import { DiscordIcon } from '../components/ui/icons';
 ---
 <!doctype html>
 <html lang="es">
@@ -14,7 +15,9 @@ import '../styles/login.css';
   <main class="login">
     <div class="brand"><div class="brand-mark">N</div><div>NUKE BOT<small>ADMINISTRACIÓN</small></div></div>
     <h1>Iniciar sesión</h1>
-    <a class="discord-login" href="/auth/discord"><span class="discord-icon" aria-hidden="true">◉</span>Continuar con Discord</a>
+    <a class="discord-login" href="/auth/discord"><span class="discord-icon" aria-hidden="true">
+      <DiscordIcon />
+      </span>Continuar con Discord</a>
     <p id="login-message" role="status" aria-live="polite"></p>
     <footer>Acceso privado · Nuke Bot</footer>
   </main>
