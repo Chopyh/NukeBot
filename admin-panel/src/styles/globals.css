@@ -5,25 +5,25 @@
 
 :root {
   color-scheme: dark;
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.17 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.19 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.89 0.2 126);
-  --primary-foreground: oklch(0.2 0.03 126);
-  --secondary: oklch(0.23 0 0);
-  --secondary-foreground: oklch(0.92 0 0);
-  --muted: oklch(0.24 0 0);
-  --muted-foreground: oklch(0.68 0 0);
-  --accent: oklch(0.27 0 0);
-  --accent-foreground: oklch(0.96 0 0);
-  --destructive: oklch(0.63 0.21 25);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 12%);
-  --ring: oklch(0.78 0.17 126);
-  --radius: 0.75rem;
+  --background: #313338;
+  --foreground: #f2f3f5;
+  --card: #2b2d31;
+  --card-foreground: #f2f3f5;
+  --popover: #232428;
+  --popover-foreground: #f2f3f5;
+  --primary: #5865f2;
+  --primary-foreground: #ffffff;
+  --secondary: #232428;
+  --secondary-foreground: #dbdee1;
+  --muted: #383a40;
+  --muted-foreground: #b5bac1;
+  --accent: #404249;
+  --accent-foreground: #ffffff;
+  --destructive: #f23f43;
+  --border: #3f4147;
+  --input: #1e1f22;
+  --ring: #00a8fc;
+  --radius: 0.5rem;
 }
 
 @theme inline {

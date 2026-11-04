@@ -10,9 +10,11 @@ import BirthdayTable from './BirthdayTable';
 import BirthdayTestPanel from './BirthdayTestPanel';
 import ReactionRolesPanel from './ReactionRolesPanel';
 import type { ReactNode } from 'react';
+import { MorphIcon } from 'morphicons/react';
+import { Cake, Gamepad2, Shield, Sparkles, UsersRound, Clock3 } from '../lib/icons';
 
 function PageHeading({title, description, children}: {title: string; description: string; children?: ReactNode}) {
-  return <div className="page-heading"><div><p className="page-eyebrow">TU COMUNIDAD, EN ORDEN</p><h1>{title}</h1><p className="subtitle">{description}</p></div>{children}</div>;
+  return <div className="page-heading"><div><h1>{title}</h1><p className="subtitle">{description}</p></div>{children}</div>;
 }
 
 export default function AdminApp() {
@@ -26,12 +28,19 @@ export default function AdminApp() {
       <main className="content">
         <section id="page-overview" className="page active">
           <PageHeading title="Resumen" description="Estado del bot y actividad del servidor." />
+          <div className="welcome-banner"><div><span className="welcome-kicker">BIENVENIDO A TU PANEL</span><h2>Tu comunidad empieza aquí.</h2><p>Los roles, las celebraciones y los pequeños detalles.<br />Todo en su sitio, con Nuke Bot.</p><Button className="button welcome-button" data-open-page="settings">Configurar mi bot <span aria-hidden="true">→</span></Button></div><div className="welcome-art" aria-hidden="true"><span className="art-star star-one">✦</span><span className="art-star star-two">✧</span><div className="bot-avatar">N<span className="bot-avatar-status" /></div><span className="art-tag">NUKE BOT <small>APP</small></span></div></div>
+          <div className="section-head status-heading"><h2 className="section-title">Estado del servidor</h2><span className="section-note">Se actualiza cada 15 s</span></div>
           <div className="stats" aria-live="polite">
-            <div className="stat"><div className="stat-label">Conexión</div><div id="status" className="stat-value">Comprobando</div><div id="bot-name" className="stat-detail">Esperando al bot</div></div>
-            <div className="stat"><div className="stat-label">Servidores de Discord</div><div id="guilds" className="stat-value">—</div><div className="stat-detail">Servidores conectados</div></div>
-            <div className="stat"><div className="stat-label">Tiempo activo</div><div id="uptime" className="stat-value">—</div><div className="stat-detail">Desde el último inicio</div></div>
+            <div className="stat"><div className="stat-label"><span className="stat-icon"><MorphIcon icon={Sparkles} size={19} /></span>Conexión</div><div id="status" className="stat-value">Comprobando</div><div id="bot-name" className="stat-detail">Esperando al bot</div></div>
+            <div className="stat"><div className="stat-label"><span className="stat-icon"><MorphIcon icon={UsersRound} size={19} /></span>Servidores de Discord</div><div id="guilds" className="stat-value">—</div><div className="stat-detail">Servidores conectados</div></div>
+            <div className="stat"><div className="stat-label"><span className="stat-icon"><MorphIcon icon={Clock3} size={19} /></span>Tiempo activo</div><div id="uptime" className="stat-value">—</div><div className="stat-detail">Desde el último inicio</div></div>
           </div>
-          <section className="section"><div className="section-head"><div><h2 className="section-title">Cumpleaños registrados</h2><p className="section-note">Vista rápida de los registros guardados.</p></div><Button variant="outline" className="button" data-open-page="birthdays">Ver todos</Button></div><div id="overview-birthdays" className="empty">Cargando registros…</div></section>
+          <section className="section"><div className="section-head"><h2 className="section-title">Hazlo tuyo</h2></div><div className="quick-actions">{[
+            { page: 'birthdays', icon: Cake, title: 'Celebra a tu gente', description: 'Un día especial para cada miembro.', action: 'Ver cumpleaños' },
+            { page: 'reaction-roles', icon: Shield, title: 'Un rol para cada uno', description: 'Deja que elijan con una reacción.', action: 'Gestionar roles' },
+            { page: 'game-roles', icon: Gamepad2, title: 'Encuentra tu equipo', description: 'Conecta a quienes juegan lo mismo.', action: 'Configurar juegos' },
+          ].map(({page, icon, title, description, action}) => <button key={page} className="quick-action" data-open-page={page}><span className={`quick-icon ${page}`}><MorphIcon icon={icon} size={24} /></span><strong>{title}</strong><span>{description}</span><span className="quick-action-link">{action}<span aria-hidden="true">→</span></span></button>)}</div></section>
+          <section className="section birthday-overview"><div className="section-head"><div><h2 className="section-title">Cumpleaños registrados</h2><p className="section-note">Vista rápida de los registros guardados.</p></div><Button variant="outline" className="button" data-open-page="birthdays">Ver todos</Button></div><div id="overview-birthdays" className="empty">Cargando registros…</div></section>
           <footer>Panel privado · Actualización del estado cada 15 segundos</footer>
         </section>
 

@@ -6,7 +6,7 @@ export default function LoginPanel() {
     <div className="brand"><div className="brand-mark">N</div><div>NUKE BOT<small>ADMINISTRACIÓN</small></div></div>
     <Card>
       <CardHeader className="p-7 pb-0">
-        <CardTitle className="text-2xl tracking-tight">Tu comunidad, en orden.</CardTitle>
+        <CardTitle className="text-2xl tracking-tight">¡Qué alegría verte de nuevo!</CardTitle>
         <CardDescription className="mt-2">Inicia sesión para gestionar Nuke Bot y configurar tu servidor.</CardDescription>
       </CardHeader>
       <CardContent className="p-7">
