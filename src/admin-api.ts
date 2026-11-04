@@ -4,6 +4,7 @@ import { EmbedBuilder, type Client } from 'discord.js';
 import type { Pool } from 'pg';
 import { readSettings, saveSettings } from './settings.js';
 import { cancelBirthdayTest, removeBirthdayRegistration, startBirthdayTest, updateBirthdayRegistration } from './birthdays.js';
+import { readGameRoleConfig, saveGameRoleConfig } from './game-roles.js';
 
 function safeEqual(left: string, right: string): boolean {
   return timingSafeEqual(createHash('sha256').update(left).digest(), createHash('sha256').update(right).digest());
@@ -20,7 +21,7 @@ async function readJson(request: import('node:http').IncomingMessage): Promise<u
   for await (const chunk of request) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     length += buffer.length;
-    if (length > 4096) throw new Error('La solicitud es demasiado grande.');
+    if (length > 16384) throw new Error('La solicitud es demasiado grande.');
     chunks.push(buffer);
   }
   return JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
@@ -101,6 +102,22 @@ export function startAdminApi(client: Client, pool: Pool): void {
       return;
     }
 
+    const gameRoleCategoriesMatch = /^\/api\/admin\/guilds\/(\d{17,20})\/categories$/.exec(url.pathname);
+    if (request.method === 'GET' && gameRoleCategoriesMatch) {
+      try {
+        const guild = await client.guilds.fetch(gameRoleCategoriesMatch[1]!);
+        const channels = await guild.channels.fetch();
+        sendJson(response, 200, channels
+          .filter((channel) => channel?.type === 4)
+          .map((channel) => ({ id: channel!.id, name: channel!.name }))
+          .sort((left, right) => left.name.localeCompare(right.name)));
+      } catch (error) {
+        console.error('No se pudieron consultar las categorías del servidor:', error);
+        sendJson(response, 503, { error: 'No se pudieron cargar las categorías de ese servidor.' });
+      }
+      return;
+    }
+
     const reactionRoleEmojisMatch = /^\/api\/admin\/guilds\/(\d{17,20})\/emojis$/.exec(url.pathname);
     if (request.method === 'GET' && reactionRoleEmojisMatch) {
       try {
@@ -133,6 +150,44 @@ export function startAdminApi(client: Client, pool: Pool): void {
       } catch (error) {
         console.error('No se pudieron consultar las asociaciones de roles por reacción:', error);
         sendJson(response, 503, { error: 'No se pudieron consultar las asociaciones.' });
+      }
+      return;
+    }
+
+    const gameRoleGuildMatch = /^\/api\/admin\/game-roles\/(\d{17,20})$/.exec(url.pathname);
+    if (gameRoleGuildMatch && request.method === 'GET') {
+      try {
+        sendJson(response, 200, await readGameRoleConfig(pool, gameRoleGuildMatch[1]!));
+      } catch (error) {
+        console.error('No se pudo consultar la configuración de roles de juegos:', error);
+        sendJson(response, 503, { error: 'No se pudo consultar la configuración de roles de juegos.' });
+      }
+      return;
+    }
+
+    if (gameRoleGuildMatch && request.method === 'PUT') {
+      try {
+        const body = await readJson(request) as Record<string, unknown>;
+        const validId = (value: unknown): value is string => typeof value === 'string' && /^\d{17,20}$/.test(value);
+        if (!validId(body.channelId) || (body.categoryId !== undefined && body.categoryId !== '' && !validId(body.categoryId)) || typeof body.intro !== 'string' || typeof body.outro !== 'string' ||
+            !Array.isArray(body.games) || body.games.length > 20) {
+          sendJson(response, 400, { error: 'Completa canal, textos y una lista válida de juegos (hasta 20).' });
+          return;
+        }
+        const guild = await client.guilds.fetch(gameRoleGuildMatch[1]!);
+        const games = body.games.map((value) => {
+          if (!value || typeof value !== 'object') throw new Error('Una de las entradas de juego no es válida.');
+          const game = value as Record<string, unknown>;
+          if ((game.id !== undefined && typeof game.id !== 'string') || (game.channelId !== undefined && typeof game.channelId !== 'string') ||
+              (game.createChannel !== undefined && typeof game.createChannel !== 'boolean') || typeof game.name !== 'string' ||
+              typeof game.description !== 'string' || typeof game.emoji !== 'string') throw new Error('Cada juego necesita nombre, descripción, emoji y canal.');
+          return { id: game.id as string | undefined, name: game.name, description: game.description, emoji: game.emoji, channelId: game.channelId as string | undefined, createChannel: game.createChannel as boolean | undefined };
+        });
+        const result = await saveGameRoleConfig(pool, guild, { channelId: body.channelId, categoryId: body.categoryId as string | undefined, intro: body.intro, outro: body.outro, games });
+        sendJson(response, 200, { ok: true, ...result });
+      } catch (error) {
+        console.error('No se pudo guardar la configuración de roles de juegos:', error);
+        sendJson(response, 400, { error: error instanceof Error ? error.message : 'No se pudo guardar la configuración.' });
       }
       return;
     }

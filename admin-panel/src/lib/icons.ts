@@ -6,6 +6,7 @@ export {
   ChevronDown,
   Clock3,
   House,
+  Gamepad2,
   LoaderCircle,
   RotateCcw,
   Search,

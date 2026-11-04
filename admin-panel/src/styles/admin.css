@@ -16,6 +16,24 @@
   box-sizing: border-box;
 }
 
+.game-role-fields { display: grid; gap: 18px; max-width: 1050px; }
+.game-role-fields select, .game-role-fields input, .game-role-fields textarea {
+  width: 100%; padding: 10px 12px; border: 1px solid var(--admin-line); border-radius: 6px;
+  color: #e8e8e9; background: #101113; font: inherit;
+}
+.game-role-fields select:focus, .game-role-fields input:focus, .game-role-fields textarea:focus { outline: 1px solid var(--admin-accent); }
+.game-role-list-head, .game-role-save { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.game-role-games { display: grid; gap: 10px; }
+.game-role-option { display: grid; grid-template-columns: minmax(140px, 1fr) minmax(120px, .55fr) minmax(180px, 1.3fr) minmax(170px, 1fr) auto auto; gap: 10px; align-items: center; }
+.game-role-option input { min-width: 0; }
+.game-role-create-toggle { display: flex; align-items: center; gap: 7px; color: var(--admin-soft); font-size: 12px; white-space: nowrap; }
+.game-role-create-toggle input { width: auto; accent-color: var(--admin-accent); }
+.game-role-save { justify-content: flex-start; flex-wrap: wrap; }
+@media (max-width: 800px) {
+  .game-role-option { grid-template-columns: 1fr 1fr; }
+  .game-role-option input:nth-child(3), .game-role-option select { grid-column: 1 / 2; }
+}
+
 html {
   color-scheme: dark !important;
   background: var(--admin-bg);

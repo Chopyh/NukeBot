@@ -35,7 +35,7 @@ function queryAll(selector: string): PanelElement[] {
 }
 
 const statusEl = query('#status');
-    const pageNames: Record<string, string> = { overview: 'Resumen', birthdays: 'Cumpleaños', 'reaction-roles': 'Roles por reacción', settings: 'Configuración' };
+    const pageNames: Record<string, string> = { overview: 'Resumen', birthdays: 'Cumpleaños', 'reaction-roles': 'Roles por reacción', 'game-roles': 'Roles de juegos', settings: 'Configuración' };
     const formatDuration = (seconds: number): string => {
       const days = Math.floor(seconds / 86400); seconds %= 86400;
       const hours = Math.floor(seconds / 3600); seconds %= 3600;
@@ -429,6 +429,101 @@ const statusEl = query('#status');
     query('#refresh-reaction-roles').addEventListener('click', loadReactionRoles);
     loadReactionRoleGuilds();
     loadReactionRoles();
+    const gameRoleGuild = query('#game-role-guild');
+    const gameRoleChannel = query('#game-role-channel');
+    const gameRoleGames = query('#game-role-games');
+    let gameRoleChannelOptions: Array<{ id: string; name: string }> = [];
+    type GameRoleDraft = { id?: string; name: string; description: string; emoji: string; channel_id?: string | null; createChannel?: boolean };
+    let gameRoleDrafts: GameRoleDraft[] = [];
+    function renderGameRoleDrafts(): void {
+      gameRoleGames.replaceChildren();
+      gameRoleDrafts.forEach((game, index) => {
+        const row = document.createElement('div'); row.className = 'game-role-option';
+        const name = document.createElement('input'); name.required = true; name.maxLength = 80; name.placeholder = 'Nombre del juego'; name.value = game.name; name.setAttribute('aria-label', 'Nombre del juego');
+        const emoji = document.createElement('input'); emoji.required = true; emoji.maxLength = 64; emoji.placeholder = '🎮 o <:nombre:id>'; emoji.value = game.emoji; emoji.setAttribute('aria-label', 'Emoji del juego');
+        const description = document.createElement('input'); description.maxLength = 250; description.placeholder = 'Descripción breve'; description.value = game.description; description.setAttribute('aria-label', 'Descripción del juego');
+        const channel = document.createElement('select'); channel.required = true; channel.setAttribute('aria-label', 'Canal vinculado al juego');
+        channel.add(new Option('Selecciona un canal', ''));
+        for (const option of gameRoleChannelOptions) channel.add(new Option(`# ${option.name}`, option.id));
+        channel.value = game.channel_id ?? '';
+        const createLabel = document.createElement('label'); createLabel.className = 'game-role-create-toggle';
+        const create = document.createElement('input'); create.type = 'checkbox'; create.checked = game.createChannel ?? false;
+        const createText = document.createElement('span'); createText.textContent = 'Crear canal'; createLabel.append(create, createText);
+        channel.disabled = create.checked; channel.required = !create.checked;
+        create.addEventListener('change', () => { channel.disabled = create.checked; channel.required = !create.checked; });
+        const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'button danger'; remove.textContent = 'Quitar';
+        remove.addEventListener('click', () => { gameRoleDrafts.splice(index, 1); renderGameRoleDrafts(); });
+        row.append(name, emoji, description, channel, createLabel, remove); gameRoleGames.append(row);
+      });
+      query('#game-role-add').disabled = gameRoleDrafts.length >= 20;
+    }
+    query('#game-role-add').addEventListener('click', () => { if (gameRoleDrafts.length < 20) { gameRoleDrafts.push({ name: '', description: '', emoji: '' }); renderGameRoleDrafts(); } });
+    async function loadGameRoleGuilds(): Promise<void> {
+      try {
+        const guilds = await api('/api/bot/guilds');
+        gameRoleGuild.replaceChildren(new Option('Selecciona un servidor', ''));
+        for (const guild of guilds) gameRoleGuild.add(new Option(guild.name, guild.id));
+      } catch (error: unknown) { gameRoleGuild.replaceChildren(new Option(errorMessage(error), '')); }
+    }
+    gameRoleGuild.addEventListener('change', async () => {
+      gameRoleChannel.disabled = true;
+      gameRoleChannel.replaceChildren(new Option('Cargando configuración…', ''));
+      const categorySelect = query('#game-role-category');
+      categorySelect.disabled = true;
+      categorySelect.replaceChildren(new Option('Cargando categorías…', ''));
+      gameRoleDrafts = []; renderGameRoleDrafts();
+      query('#game-role-intro').value = ''; query('#game-role-outro').value = '';
+      query('#game-role-persistent').textContent = 'El mensaje se crea al guardar por primera vez y conserva su ID al actualizar juegos y textos.';
+      if (!gameRoleGuild.value) { gameRoleChannel.replaceChildren(new Option('Selecciona un servidor', '')); return; }
+      try {
+        const [channels, categories, saved] = await Promise.all([
+          api(`/api/bot/guilds/${gameRoleGuild.value}/channels`),
+          api(`/api/bot/guilds/${gameRoleGuild.value}/categories`),
+          api(`/api/bot/game-roles/${gameRoleGuild.value}`),
+        ]);
+        gameRoleChannelOptions = channels;
+        categorySelect.replaceChildren(new Option('Sin categoría', ''));
+        for (const category of categories) categorySelect.add(new Option(category.name, category.id));
+        categorySelect.disabled = false;
+        gameRoleChannel.replaceChildren(new Option('Selecciona un canal', ''));
+        for (const channel of channels) gameRoleChannel.add(new Option(`# ${channel.name}`, channel.id));
+        const config = saved.config;
+        if (config) {
+          gameRoleChannel.value = config.channel_id;
+          gameRoleChannel.disabled = true;
+          query('#game-role-intro').value = config.intro;
+          query('#game-role-outro').value = config.outro;
+          gameRoleDrafts = saved.games;
+          query('#game-role-persistent').textContent = `Mensaje persistente: ${config.message_id}. El canal queda fijado para conservar el mismo mensaje.`;
+        } else gameRoleChannel.disabled = false;
+        renderGameRoleDrafts();
+        if (!channels.length) { gameRoleChannel.replaceChildren(new Option('No hay canales de texto disponibles', '')); gameRoleChannel.disabled = true; }
+      } catch (error: unknown) {
+        gameRoleChannel.replaceChildren(new Option(errorMessage(error), ''));
+        query('#game-role-message').textContent = errorMessage(error);
+        query('#game-role-message').className = 'message error';
+      }
+    });
+    query('#game-role-save').addEventListener('click', async () => {
+      const button = query('#game-role-save'); const message = query('#game-role-message');
+      const savedGames = [...gameRoleGames.querySelectorAll<HTMLElement>('.game-role-option')].map((row, index) => {
+        const fields = row.querySelectorAll<HTMLInputElement>('input');
+        const channel = row.querySelector<HTMLSelectElement>('select');
+        return { ...(gameRoleDrafts[index]?.id ? { id: gameRoleDrafts[index]!.id } : {}), name: fields[0]?.value ?? '', emoji: fields[1]?.value ?? '', description: fields[2]?.value ?? '', channelId: channel?.value ?? '', createChannel: fields[3]?.checked ?? false };
+      });
+      if (!gameRoleGuild.value || !gameRoleChannel.value) { message.textContent = 'Selecciona un servidor y un canal.'; message.className = 'message error'; return; }
+      button.disabled = true; message.textContent = 'Actualizando mensaje y roles…'; message.className = 'message';
+      try {
+        const result = await api(`/api/bot/game-roles/${gameRoleGuild.value}`, { method: 'PUT', body: JSON.stringify({
+          channelId: gameRoleChannel.value, categoryId: query('#game-role-category').value, intro: query('#game-role-intro').value, outro: query('#game-role-outro').value, games: savedGames,
+        }) });
+        message.textContent = `Configuración guardada: ${result.games} juego(s). El mensaje ${result.messageId} conserva su ID.`;
+        message.className = 'message success';
+        gameRoleGuild.dispatchEvent(new Event('change'));
+      } catch (error: unknown) { message.textContent = errorMessage(error); message.className = 'message error'; }
+      finally { button.disabled = false; }
+    });
+    void loadGameRoleGuilds();
     query('#settings-form').addEventListener('submit', async (event) => {
       event.preventDefault();
       const button = query('#save-button'); const message = query('#save-message');

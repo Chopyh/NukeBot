@@ -46,6 +46,23 @@ import ReactionRolesPanel from '../components/ReactionRolesPanel.astro';
           <ReactionRolesPanel />
         </section>
 
+        <section id="page-game-roles" class="page">
+          <PageHeading title="Roles de juegos" description="Gestiona opciones de juegos y sus roles desde un mensaje persistente de Discord." />
+          <section class="section game-roles-panel">
+            <div class="game-role-fields">
+              <label class="field">Servidor<select id="game-role-guild" required><option value="">Cargando servidores…</option></select></label>
+              <label class="field">Canal del mensaje<select id="game-role-channel" required disabled><option value="">Selecciona un servidor</option></select></label>
+              <label class="field">Categoría para canales creados automáticamente<select id="game-role-category" disabled><option value="">Sin categoría</option></select></label>
+              <label class="field">Texto inicial<textarea id="game-role-intro" maxlength="1500" rows="3" placeholder="Elige los juegos que juegas:"></textarea></label>
+              <div class="game-role-list-head"><div><h2 class="section-title">Juegos</h2><p class="section-note">Cada juego crea y administra su propio rol.</p></div><button id="game-role-add" class="button" type="button">＋ Añadir juego</button></div>
+              <div id="game-role-games" class="game-role-games"></div>
+              <label class="field">Texto final<textarea id="game-role-outro" maxlength="1500" rows="3" placeholder="Puedes cambiar tu selección cuando quieras."></textarea></label>
+              <div class="game-role-save"><button id="game-role-save" class="button primary" type="button">Guardar y actualizar mensaje</button><p id="game-role-message" class="message" role="status" aria-live="polite"></p></div>
+              <p id="game-role-persistent" class="field-hint">El mensaje se crea al guardar por primera vez y conserva su ID al actualizar juegos y textos.</p>
+            </div>
+          </section>
+        </section>
+
         <section id="page-settings" class="page">
           <PageHeading title="Configuración" description="Presencia y actividad que muestra el bot en Discord." />
           <form id="settings-form" class="settings-form">
