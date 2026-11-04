@@ -441,6 +441,31 @@ const statusEl = query('#status');
     let loadedGameRoleGuild = '';
     let gameRoleChannelOptions: { text: Array<{ id: string; name: string; type: 'text' }>; voice: Array<{ id: string; name: string; type: 'voice' }> } = { text: [], voice: [] };
     const gameChannelSelectRoots: Root[] = [];
+    const gameRoleFormatTokens: Record<string, [string, string]> = {
+      bold: ['**', '**'], italic: ['*', '*'], underline: ['__', '__'], strike: ['~~', '~~'], code: ['`', '`'],
+    };
+    function installGameRoleToolbar(toolbar: HTMLElement, editor: HTMLTextAreaElement): void {
+      toolbar.querySelectorAll<HTMLButtonElement>('[data-game-format]').forEach((button) => button.addEventListener('click', () => {
+        const format = button.dataset.gameFormat ?? 'bold';
+        const start = editor.selectionStart ?? 0; const end = editor.selectionEnd ?? start;
+        const selected = editor.value.slice(start, end) || 'texto';
+        let replacement: string;
+        if (format === 'quote') replacement = selected.split(/\r?\n/).map((line) => `> ${line}`).join('\n');
+        else if (format === 'link') replacement = `[${selected}](https://url)`;
+        else {
+          const [before, after] = gameRoleFormatTokens[format] ?? ['**', '**'];
+          replacement = `${before}${selected}${after}`;
+        }
+        if (editor.maxLength > 0 && editor.value.length - (end - start) + replacement.length > editor.maxLength) return;
+        editor.setRangeText(replacement, start, end, 'select');
+        editor.focus();
+        editor.dispatchEvent(new Event('input', { bubbles: true }));
+      }));
+    }
+    queryAll('.game-role-rich-toolbar').forEach((toolbar) => {
+      const editor = toolbar.parentElement?.querySelector<HTMLTextAreaElement>('textarea');
+      if (editor) installGameRoleToolbar(toolbar, editor);
+    });
     type GameRoleDraft = {
       id?: string; name: string; description: string; emoji: string; channel_id?: string | null; createChannel?: boolean;
       created_by_bot?: boolean; ownership_confirmed?: boolean;
@@ -455,7 +480,21 @@ const statusEl = query('#status');
         const row = document.createElement('div'); row.className = 'game-role-option';
         const name = document.createElement('input'); name.required = true; name.maxLength = 80; name.placeholder = 'Nombre del juego'; name.value = game.name; name.setAttribute('aria-label', 'Nombre del juego');
         const emoji = document.createElement('input'); emoji.required = true; emoji.maxLength = 64; emoji.placeholder = '🎮 o <:nombre:id>'; emoji.value = game.emoji; emoji.setAttribute('aria-label', 'Emoji del juego');
-        const description = document.createElement('input'); description.maxLength = 250; description.placeholder = 'Descripción breve'; description.value = game.description; description.setAttribute('aria-label', 'Descripción del juego');
+        const descriptionField = document.createElement('div'); descriptionField.className = 'game-role-rich-description';
+        const descriptionToolbar = document.createElement('div'); descriptionToolbar.className = 'rich-toolbar game-role-dynamic-toolbar'; descriptionToolbar.setAttribute('role', 'toolbar'); descriptionToolbar.setAttribute('aria-label', `Formato de la descripción de ${game.name || 'juego'}`);
+        const formatButtons: Array<[string, string, string]> = [['bold', 'Negrita', 'B'], ['italic', 'Cursiva', 'I'], ['underline', 'Subrayado', 'U'], ['strike', 'Tachado', 'S'], ['code', 'Código', '</>'], ['quote', 'Cita', '❞'], ['link', 'Enlace', '↗']];
+        for (const [format, label, caption] of formatButtons) {
+          const button = document.createElement('button'); button.type = 'button'; button.dataset.gameFormat = format; button.setAttribute('aria-label', label); button.title = label;
+          if (format === 'bold') button.innerHTML = '<strong>B</strong>';
+          else if (format === 'italic') button.innerHTML = '<em>I</em>';
+          else if (format === 'underline') button.innerHTML = '<u>U</u>';
+          else if (format === 'strike') button.innerHTML = '<s>S</s>';
+          else button.textContent = caption;
+          descriptionToolbar.append(button);
+        }
+        const description = document.createElement('textarea'); description.maxLength = 250; description.rows = 3; description.placeholder = 'Descripción breve (Markdown de Discord)'; description.value = game.description; description.setAttribute('aria-label', 'Descripción del juego');
+        installGameRoleToolbar(descriptionToolbar, description);
+        descriptionField.append(descriptionToolbar, description);
         const channelHost = document.createElement('div'); channelHost.className = 'game-role-channel-select';
         const channelRoot = createRoot(channelHost); gameChannelSelectRoots.push(channelRoot);
         channelRoot.render(createElement(Select, {
@@ -499,7 +538,7 @@ const statusEl = query('#status');
           }
           gameRoleDrafts.splice(index, 1); renderGameRoleDrafts();
         });
-        row.append(name, emoji, description, channelHost, createLabel, remove);
+        row.append(name, emoji, descriptionField, channelHost, createLabel, remove);
         if (ownershipField) row.append(ownershipField);
         gameRoleGames.append(row);
       });
@@ -571,11 +610,12 @@ const statusEl = query('#status');
         const fields = row.querySelectorAll<HTMLInputElement>('input');
         const channel = row.querySelector<HTMLSelectElement>('select');
         const ownerSelect = row.querySelector<HTMLSelectElement>('.game-role-ownership-select');
+        const description = row.querySelector<HTMLTextAreaElement>('.game-role-rich-description textarea');
         return {
           ...(gameRoleDrafts[index]?.id ? { id: gameRoleDrafts[index]!.id } : {}),
           ...(ownerSelect?.dataset.confirmed === 'true' ? { ownershipConfirmed: true, createdByBot: ownerSelect.value === 'bot' } : {}),
-          name: fields[0]?.value ?? '', emoji: fields[1]?.value ?? '', description: fields[2]?.value ?? '',
-          channelId: channel?.value ?? '', createChannel: fields[3]?.checked ?? false,
+          name: fields[0]?.value ?? '', emoji: fields[1]?.value ?? '', description: description?.value ?? '',
+          channelId: channel?.value ?? '', createChannel: fields[2]?.checked ?? false,
         };
       });
       if (!gameRoleGuild.value || !gameRoleChannel.value) { message.textContent = 'Selecciona un servidor y un canal.'; message.className = 'message error'; return; }
