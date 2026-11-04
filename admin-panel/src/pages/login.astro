@@ -1,9 +1,10 @@
 ---
 import '../styles/login.css';
-import { DiscordIcon } from '../components/ui/icons';
+import '../styles/globals.css';
+import LoginPanel from '../components/LoginPanel';
 ---
 <!doctype html>
-<html lang="es">
+<html lang="es" class="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -12,15 +13,7 @@ import { DiscordIcon } from '../components/ui/icons';
 
 </head>
 <body>
-  <main class="login">
-    <div class="brand"><div class="brand-mark">N</div><div>NUKE BOT<small>ADMINISTRACIÓN</small></div></div>
-    <h1>Iniciar sesión</h1>
-    <a class="discord-login" href="/auth/discord"><span class="discord-icon" aria-hidden="true">
-      <DiscordIcon />
-      </span>Continuar con Discord</a>
-    <p id="login-message" role="status" aria-live="polite"></p>
-    <footer>Acceso privado · Nuke Bot</footer>
-  </main>
+  <LoginPanel />
   <script src="../scripts/login.ts"></script>
 </body>
 </html>

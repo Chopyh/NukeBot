@@ -2,13 +2,14 @@ import { useEffect, useMemo, useState } from 'react';
 import type { ComponentProps } from 'react';
 import { MorphIcon } from 'morphicons/react';
 import {
-  Cake, Check, ChevronDown, Clock3, LoaderCircle, RotateCcw, Search,
+  Cake, Check, Clock3, LoaderCircle, RotateCcw, Search,
   ShieldCheck, Sparkles, UserRoundSearch, UsersRound,
 } from '../lib/icons';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Input } from './ui/input';
+import { Select } from './ui/select';
 import { Label } from './ui/label';
 import { cn } from '../lib/utils';
 
@@ -205,7 +206,7 @@ export default function BirthdayTestPanel() {
   return (
     <div className="space-y-8">
       <Card className="overflow-hidden">
-        <CardHeader className="border-b border-border bg-gradient-to-r from-card to-[#1c2017] p-6 sm:p-7">
+        <CardHeader className="border-b border-border bg-card p-6 sm:p-7">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="flex items-start gap-4">
               <div className="grid size-11 shrink-0 place-items-center rounded-xl border border-primary/15 bg-primary/10 text-primary">
@@ -229,7 +230,7 @@ export default function BirthdayTestPanel() {
             <div className="space-y-2">
               <Label htmlFor="test-guild">Servidor de Discord</Label>
               <div className="relative">
-                <select
+                <Select
                   id="test-guild"
                   className="flex h-10 w-full appearance-none rounded-lg border border-input bg-background px-3 pr-10 text-sm text-foreground shadow-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 disabled:opacity-50"
                   value={guildId}
@@ -238,8 +239,7 @@ export default function BirthdayTestPanel() {
                 >
                   <option value="">{loadingGuilds ? 'Cargando servidores…' : 'Selecciona un servidor'}</option>
                   {guilds.map((guild) => <option key={guild.id} value={guild.id}>{guild.name} · {guild.memberCount} miembros</option>)}
-                </select>
-                <MorphIcon icon={ChevronDown} size={15} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                </Select>
               </div>
             </div>
 

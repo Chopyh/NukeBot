@@ -1,6 +1,7 @@
 import { createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { Select } from '../components/ui/select';
+import { installSearchableSelects } from './selects';
 
 interface PanelElement extends HTMLElement {
   value: string;
@@ -38,6 +39,8 @@ function queryAll(selector: string): PanelElement[] {
   return Array.from(document.querySelectorAll<HTMLElement>(selector)) as PanelElement[];
 }
 
+export function initializeAdmin() {
+const disposeSelects = installSearchableSelects();
 const statusEl = query('#status');
     const pageNames: Record<string, string> = { overview: 'Resumen', birthdays: 'Cumpleaños', 'reaction-roles': 'Roles por reacción', 'game-roles': 'Roles de juegos', settings: 'Configuración' };
     const formatDuration = (seconds: number): string => {
@@ -58,7 +61,11 @@ const statusEl = query('#status');
     }
     function openPage(name: string): void {
       queryAll('.page').forEach((page) => page.classList.toggle('active', page.id === `page-${name}`));
-      queryAll('.nav-link').forEach((link) => link.classList.toggle('active', link.dataset.page === name));
+      queryAll('.nav-link').forEach((link) => {
+        const active = link.dataset.page === name;
+        link.classList.toggle('active', active);
+        if (active) link.setAttribute('aria-current', 'page'); else link.removeAttribute('aria-current');
+      });
       query('#current-section').textContent = pageNames[name] ?? 'Resumen';
       history.replaceState(null, '', `#${name}`);
     }
@@ -84,7 +91,7 @@ const statusEl = query('#status');
       }
     }
     refreshStatus();
-    setInterval(refreshStatus, 15000);
+    const statusInterval = setInterval(refreshStatus, 15000);
     async function loadSettings() {
       const { settings } = await api('/api/settings');
       query('#activity-text').value = settings.activityText;
@@ -471,6 +478,23 @@ const statusEl = query('#status');
       created_by_bot?: boolean; ownership_confirmed?: boolean;
     };
     let gameRoleDrafts: GameRoleDraft[] = [];
+    function captureGameRoleDrafts(): void {
+      [...gameRoleGames.querySelectorAll<HTMLElement>('.game-role-option')].forEach((row, index) => {
+        const game = gameRoleDrafts[index];
+        if (!game) return;
+        const fields = row.querySelectorAll<HTMLInputElement>('input');
+        const ownership = row.querySelector<HTMLSelectElement>('.game-role-ownership-select');
+        game.name = fields[0]?.value ?? '';
+        game.emoji = fields[1]?.value ?? '';
+        game.description = row.querySelector<HTMLTextAreaElement>('textarea')?.value ?? '';
+        game.channel_id = row.querySelector<HTMLSelectElement>('select')?.value ?? '';
+        game.createChannel = fields[2]?.checked ?? false;
+        if (ownership?.dataset.confirmed === 'true') {
+          game.ownership_confirmed = true;
+          game.created_by_bot = ownership.value === 'bot';
+        }
+      });
+    }
     let removedGameOwnership: Array<{ id: string; ownershipConfirmed?: boolean; createdByBot?: boolean }> = [];
     function renderGameRoleDrafts(): void {
       gameChannelSelectRoots.forEach((root) => root.unmount());
@@ -530,11 +554,12 @@ const statusEl = query('#status');
         }
         const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'button danger'; remove.textContent = 'Quitar';
         remove.addEventListener('click', () => {
+          captureGameRoleDrafts();
           if (game.id) {
             const ownership = row.querySelector<HTMLSelectElement>('.game-role-ownership-select');
             removedGameOwnership.push(ownership?.dataset.confirmed === 'true'
               ? { id: game.id, ownershipConfirmed: true, createdByBot: ownership.value === 'bot' }
-              : { id: game.id });
+              : game.ownership_confirmed ? { id: game.id, ownershipConfirmed: true, createdByBot: game.created_by_bot } : { id: game.id });
           }
           gameRoleDrafts.splice(index, 1); renderGameRoleDrafts();
         });
@@ -546,6 +571,7 @@ const statusEl = query('#status');
     }
     query('#game-role-add').addEventListener('click', () => {
       if (gameRoleDrafts.length < 20) {
+        captureGameRoleDrafts();
         const selectedCategory = gameRoleCategory.value;
         gameRoleDrafts.push({ name: '', description: '', emoji: '' });
         renderGameRoleDrafts();
@@ -613,7 +639,7 @@ const statusEl = query('#status');
         const description = row.querySelector<HTMLTextAreaElement>('.game-role-rich-description textarea');
         return {
           ...(gameRoleDrafts[index]?.id ? { id: gameRoleDrafts[index]!.id } : {}),
-          ...(ownerSelect?.dataset.confirmed === 'true' ? { ownershipConfirmed: true, createdByBot: ownerSelect.value === 'bot' } : {}),
+          ...(gameRoleDrafts[index]?.ownership_confirmed ? { ownershipConfirmed: true, createdByBot: gameRoleDrafts[index]!.created_by_bot } : ownerSelect?.dataset.confirmed === 'true' ? { ownershipConfirmed: true, createdByBot: ownerSelect.value === 'bot' } : {}),
           name: fields[0]?.value ?? '', emoji: fields[1]?.value ?? '', description: description?.value ?? '',
           channelId: channel?.value ?? '', createChannel: fields[2]?.checked ?? false,
         };
@@ -651,3 +677,6 @@ const statusEl = query('#status');
     query('#logout').addEventListener('click', async () => { await fetch('/api/logout', { method: 'POST' }); location.href = '/login'; });
     loadSession(); loadSettings().catch((error: unknown) => { query('#save-message').textContent = errorMessage(error); });
     loadBirthdays();
+
+return () => { clearInterval(statusInterval); disposeSelects(); };
+}
