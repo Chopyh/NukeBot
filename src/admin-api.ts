@@ -188,6 +188,8 @@ export function startAdminApi(client: Client, pool: Pool): void {
       try {
         const body = await readJson(request) as Record<string, unknown>;
         const validId = (value: unknown): value is string => typeof value === 'string' && /^\d{17,20}$/.test(value);
+        // Game option IDs are opaque database IDs (currently UUIDs), not Discord snowflakes.
+        const validGameOptionId = (value: unknown): value is string => typeof value === 'string' && value.length > 0 && value.length <= 100;
         if (!validId(body.channelId) || (body.categoryId !== undefined && body.categoryId !== '' && !validId(body.categoryId)) || typeof body.intro !== 'string' || typeof body.outro !== 'string' ||
             !Array.isArray(body.games) || body.games.length > 20 || (body.removedGames !== undefined && (!Array.isArray(body.removedGames) || body.removedGames.length > 20))) {
           sendJson(response, 400, { error: 'Completa canal, textos y una lista válida de juegos (hasta 20).' });
@@ -211,8 +213,10 @@ export function startAdminApi(client: Client, pool: Pool): void {
         const removedGames = (body.removedGames ?? []).map((value) => {
           if (!value || typeof value !== 'object') throw new Error('Una confirmación de canal antiguo no es válida.');
           const removed = value as Record<string, unknown>;
-          if (!validId(removed.id) || (removed.ownershipConfirmed !== undefined && typeof removed.ownershipConfirmed !== 'boolean') ||
-              (removed.createdByBot !== undefined && typeof removed.createdByBot !== 'boolean')) throw new Error('La confirmación de canal antiguo no es válida.');
+          if (!validGameOptionId(removed.id) || (removed.ownershipConfirmed !== undefined && typeof removed.ownershipConfirmed !== 'boolean') ||
+              (removed.createdByBot !== undefined && typeof removed.createdByBot !== 'boolean') ||
+              (removed.ownershipConfirmed === true && typeof removed.createdByBot !== 'boolean') ||
+              (removed.createdByBot !== undefined && removed.ownershipConfirmed !== true)) throw new Error('La confirmación de canal antiguo no es válida.');
           return { id: removed.id, ownershipConfirmed: removed.ownershipConfirmed as boolean | undefined, createdByBot: removed.createdByBot as boolean | undefined };
         });
         const result = await saveGameRoleConfig(pool, guild, { channelId: body.channelId, categoryId: body.categoryId as string | undefined, intro: body.intro, outro: body.outro, games, removedGames });
