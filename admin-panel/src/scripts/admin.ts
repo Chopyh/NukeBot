@@ -1,4 +1,6 @@
-import { createSelect } from '../components/ui/select';
+import { createElement } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { Select } from '../components/ui/select';
 
 interface PanelElement extends HTMLElement {
   value: string;
@@ -438,34 +440,42 @@ const statusEl = query('#status');
     let selectedGameRoleCategory = '';
     let loadedGameRoleGuild = '';
     let gameRoleChannelOptions: { text: Array<{ id: string; name: string; type: 'text' }>; voice: Array<{ id: string; name: string; type: 'voice' }> } = { text: [], voice: [] };
+    const gameChannelSelectRoots: Root[] = [];
     type GameRoleDraft = { id?: string; name: string; description: string; emoji: string; channel_id?: string | null; createChannel?: boolean };
     let gameRoleDrafts: GameRoleDraft[] = [];
     function renderGameRoleDrafts(): void {
+      gameChannelSelectRoots.forEach((root) => root.unmount());
+      gameChannelSelectRoots.length = 0;
       gameRoleGames.replaceChildren();
       gameRoleDrafts.forEach((game, index) => {
         const row = document.createElement('div'); row.className = 'game-role-option';
         const name = document.createElement('input'); name.required = true; name.maxLength = 80; name.placeholder = 'Nombre del juego'; name.value = game.name; name.setAttribute('aria-label', 'Nombre del juego');
         const emoji = document.createElement('input'); emoji.required = true; emoji.maxLength = 64; emoji.placeholder = '🎮 o <:nombre:id>'; emoji.value = game.emoji; emoji.setAttribute('aria-label', 'Emoji del juego');
         const description = document.createElement('input'); description.maxLength = 250; description.placeholder = 'Descripción breve'; description.value = game.description; description.setAttribute('aria-label', 'Descripción del juego');
-        const channel = createSelect('game-channel-select'); channel.required = true; channel.setAttribute('aria-label', 'Canal vinculado al juego');
-        channel.add(new Option('Selecciona un canal', ''));
-        const textGroup = document.createElement('optgroup'); textGroup.label = 'Canales de texto';
-        for (const option of gameRoleChannelOptions.text) textGroup.append(new Option(`# ${option.name}`, option.id));
-        channel.append(textGroup);
-        const voiceGroup = document.createElement('optgroup'); voiceGroup.label = 'Canales de voz (no disponibles)';
-        for (const option of gameRoleChannelOptions.voice) {
-          const voice = new Option(`🔊 ${option.name}`, option.id); voice.disabled = true; voiceGroup.append(voice);
-        }
-        channel.append(voiceGroup);
-        channel.value = game.channel_id ?? '';
+        const channelHost = document.createElement('div'); channelHost.className = 'game-role-channel-select';
+        const channelRoot = createRoot(channelHost); gameChannelSelectRoots.push(channelRoot);
+        channelRoot.render(createElement(Select, {
+          className: 'game-channel-select', required: !(game.createChannel ?? false),
+          disabled: game.createChannel ?? false, defaultValue: game.channel_id ?? '',
+          'aria-label': 'Canal vinculado al juego',
+        },
+        createElement('option', { value: '' }, 'Selecciona un canal'),
+        createElement('optgroup', { label: 'Canales de texto' }, ...gameRoleChannelOptions.text.map((option) =>
+          createElement('option', { key: option.id, value: option.id }, `# ${option.name}`),
+        )),
+        createElement('optgroup', { label: 'Canales de voz (no disponibles)' }, ...gameRoleChannelOptions.voice.map((option) =>
+          createElement('option', { key: option.id, value: option.id, disabled: true }, `🔊 ${option.name}`),
+        ))));
         const createLabel = document.createElement('label'); createLabel.className = 'game-role-create-toggle';
         const create = document.createElement('input'); create.type = 'checkbox'; create.checked = game.createChannel ?? false;
         const createText = document.createElement('span'); createText.textContent = 'Crear canal'; createLabel.append(create, createText);
-        channel.disabled = create.checked; channel.required = !create.checked;
-        create.addEventListener('change', () => { channel.disabled = create.checked; channel.required = !create.checked; });
+        create.addEventListener('change', () => {
+          const channel = channelHost.querySelector<HTMLSelectElement>('select');
+          if (channel) { channel.disabled = create.checked; channel.required = !create.checked; }
+        });
         const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'button danger'; remove.textContent = 'Quitar';
         remove.addEventListener('click', () => { gameRoleDrafts.splice(index, 1); renderGameRoleDrafts(); });
-        row.append(name, emoji, description, channel, createLabel, remove); gameRoleGames.append(row);
+        row.append(name, emoji, description, channelHost, createLabel, remove); gameRoleGames.append(row);
       });
       query('#game-role-add').disabled = gameRoleDrafts.length >= 20;
     }
