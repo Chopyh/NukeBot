@@ -5,7 +5,7 @@ import { startAdminApi } from './admin-api.js';
 import { applySettings, createSettingsPool, ensureSettingsTable, readSettings } from './settings.js';
 import { ensureBirthdayTables, startBirthdayScheduler } from './birthdays.js';
 import { ensureReactionRoleTable, registerReactionRoleListeners } from './reaction-roles.js';
-import { ensureGameRoleTables, registerGameRoleListeners } from './game-roles.js';
+import { ensureGameRoleTables, registerGameRoleListeners, startGameRoleRecovery } from './game-roles.js';
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessageReactions, GatewayIntentBits.GuildExpressions],
@@ -30,6 +30,7 @@ await ensureGameRoleTables(settingsPool).catch(async (error) => {
 });
 registerReactionRoleListeners(client, settingsPool);
 registerGameRoleListeners(client, settingsPool);
+startGameRoleRecovery(client, settingsPool);
 let currentSettings = await readSettings(settingsPool);
 
 client.once(Events.ClientReady, (readyClient) => {
