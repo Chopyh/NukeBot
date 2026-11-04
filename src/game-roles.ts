@@ -3,7 +3,8 @@ import type { Pool } from 'pg';
 
 export type GameRoleOption = {
   id: string; name: string; description: string; emoji: string; emoji_key: string; role_id: string;
-  channel_id: string | null; created_by_bot: boolean; everyone_view_state: number | null; bot_view_state: number | null;
+  channel_id: string | null; created_by_bot: boolean; ownership_confirmed: boolean;
+  everyone_view_state: number | null; bot_view_state: number | null;
 };
 type StoredOption = GameRoleOption;
 type StoredConfig = { guild_id: string; channel_id: string; message_id: string | null; intro: string; outro: string };
@@ -18,12 +19,14 @@ export async function ensureGameRoleTables(pool: Pool): Promise<void> {
       id TEXT PRIMARY KEY, guild_id TEXT NOT NULL REFERENCES game_role_configs(guild_id) ON DELETE CASCADE,
       name TEXT NOT NULL, description TEXT NOT NULL, emoji TEXT NOT NULL, emoji_key TEXT NOT NULL,
       role_id TEXT NOT NULL, channel_id TEXT, created_by_bot BOOLEAN NOT NULL DEFAULT FALSE,
+      ownership_confirmed BOOLEAN NOT NULL DEFAULT TRUE,
       everyone_view_state SMALLINT, bot_view_state SMALLINT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       UNIQUE(guild_id, emoji_key), UNIQUE(guild_id, name)
     )
   `);
   await pool.query('ALTER TABLE game_role_options ADD COLUMN IF NOT EXISTS channel_id TEXT');
   await pool.query('ALTER TABLE game_role_options ADD COLUMN IF NOT EXISTS created_by_bot BOOLEAN NOT NULL DEFAULT FALSE');
+  await pool.query('ALTER TABLE game_role_options ADD COLUMN IF NOT EXISTS ownership_confirmed BOOLEAN NOT NULL DEFAULT FALSE');
   await pool.query('ALTER TABLE game_role_options ADD COLUMN IF NOT EXISTS everyone_view_state SMALLINT');
   await pool.query('ALTER TABLE game_role_options ADD COLUMN IF NOT EXISTS bot_view_state SMALLINT');
 }
@@ -65,15 +68,17 @@ export function registerGameRoleListeners(client: Client, pool: Pool): void {
 export async function readGameRoleConfig(pool: Pool, guildId: string): Promise<{ config: StoredConfig | null; games: StoredOption[] }> {
   const [config, games] = await Promise.all([
     pool.query<StoredConfig>('SELECT guild_id, channel_id, message_id, intro, outro FROM game_role_configs WHERE guild_id = $1', [guildId]),
-    pool.query<StoredOption>('SELECT id, name, description, emoji, emoji_key, role_id, channel_id, created_by_bot, everyone_view_state, bot_view_state FROM game_role_options WHERE guild_id = $1 ORDER BY created_at, id', [guildId]),
+    pool.query<StoredOption>('SELECT id, name, description, emoji, emoji_key, role_id, channel_id, created_by_bot, ownership_confirmed, everyone_view_state, bot_view_state FROM game_role_options WHERE guild_id = $1 ORDER BY created_at, id', [guildId]),
   ]);
   return { config: config.rows[0] ?? null, games: games.rows };
 }
 
 type DesiredGame = {
   id?: string; name: string; description: string; emoji: string; channelId?: string; createChannel?: boolean;
+  ownershipConfirmed?: boolean; createdByBot?: boolean;
   channel_id?: string | null; created_by_bot?: boolean; everyone_view_state?: number | null; bot_view_state?: number | null;
 };
+type RemovedGameOwnership = { id: string; ownershipConfirmed?: boolean; createdByBot?: boolean };
 function emojiParts(input: string): { display: string; key: string; customId?: string } {
   const display = input.trim();
   const custom = display.match(/^<(a?):([A-Za-z0-9_]{2,32}):(\d{17,20})>$/);
@@ -142,7 +147,7 @@ async function getTextChannel(guild: Guild, channelId: string): Promise<any> {
   return channel;
 }
 
-export async function saveGameRoleConfig(pool: Pool, guild: Guild, input: { channelId: string; categoryId?: string; intro: string; outro: string; games: DesiredGame[] }): Promise<{ messageId: string; games: number; warnings: string[] }> {
+export async function saveGameRoleConfig(pool: Pool, guild: Guild, input: { channelId: string; categoryId?: string; intro: string; outro: string; games: DesiredGame[]; removedGames?: RemovedGameOwnership[] }): Promise<{ messageId: string; games: number; warnings: string[] }> {
   if (input.games.length > 20) throw new Error('Puedes configurar hasta 20 juegos.');
   if (input.intro.length > 1500 || input.outro.length > 1500) throw new Error('Los textos de inicio y final admiten hasta 1500 caracteres cada uno.');
   const emojiSeen = new Set<string>(); const nameSeen = new Set<string>(); const ids = new Set<string>();
@@ -164,20 +169,35 @@ export async function saveGameRoleConfig(pool: Pool, guild: Guild, input: { chan
     if (channelId && (channelIds.has(channelId) || channelId === input.channelId)) throw new Error('Cada juego necesita un canal privado distinto del mensaje central.');
     if (channelId) channelIds.add(channelId);
     const sameChannel = Boolean(previous && previous.channel_id === channelId);
+    const ownershipConfirmed = game.createChannel === true || !sameChannel || previous?.ownership_confirmed === true || game.ownershipConfirmed === true;
+    const createdByBot = game.createChannel === true || (sameChannel && (
+      game.ownershipConfirmed === true ? game.createdByBot === true : previous?.created_by_bot === true
+    ));
     return {
       id: game.id, name, description, emoji: emoji.display, emoji_key: emoji.key,
       role_id: previous?.role_id ?? '', channel_id: channelId, createChannel: game.createChannel === true,
-      created_by_bot: game.createChannel === true || (sameChannel && previous?.created_by_bot === true),
+      created_by_bot: createdByBot, ownership_confirmed: ownershipConfirmed,
       everyone_view_state: sameChannel ? previous?.everyone_view_state ?? 0 : null,
       bot_view_state: sameChannel ? previous?.bot_view_state ?? 0 : null,
       customId: emoji.customId,
     };
   });
+  const removedOwnershipById = new Map<string, RemovedGameOwnership>();
+  for (const removed of input.removedGames ?? []) {
+    if (!oldById.has(removed.id) || ids.has(removed.id) || removedOwnershipById.has(removed.id)) throw new Error('La confirmación de propiedad pertenece a una entrada que no se está eliminando.');
+    if (removed.ownershipConfirmed === true && typeof removed.createdByBot !== 'boolean') throw new Error('Indica si el canal antiguo lo creó el bot o ya existía.');
+    removedOwnershipById.set(removed.id, removed);
+  }
   gameEmbed(input.intro, input.outro, desired);
   const botMember = guild.members.me ?? await guild.members.fetchMe();
   if (!botMember.permissions.has('ManageRoles')) throw new Error('El bot necesita el permiso Gestionar roles.');
   const channel = await getTextChannel(guild, input.channelId);
-  if (desired.length > 0 || current.games.some((game) => !desired.some((next) => next.id === game.id && next.channel_id === game.channel_id))) {
+  const removalNeedsChannelPermission = current.games.some((game) => {
+    const removalOwnership = removedOwnershipById.get(game.id);
+    return game.created_by_bot || game.everyone_view_state !== null || game.bot_view_state !== null ||
+      (removalOwnership?.ownershipConfirmed === true && removalOwnership.createdByBot === true);
+  });
+  if (desired.length > 0 || removalNeedsChannelPermission) {
     if (!botMember.permissions.has('ManageChannels')) throw new Error('El bot necesita el permiso Gestionar canales para privatizar, restaurar o borrar canales de juegos.');
   }
   if (input.categoryId && desired.some((game) => game.createChannel)) {
@@ -279,8 +299,8 @@ export async function saveGameRoleConfig(pool: Pool, guild: Guild, input: { chan
         ON CONFLICT (guild_id) DO UPDATE SET channel_id=EXCLUDED.channel_id, message_id=EXCLUDED.message_id, intro=EXCLUDED.intro, outro=EXCLUDED.outro, updated_at=NOW()`,
       [guild.id, input.channelId, message.id, input.intro.trim(), input.outro.trim()]);
       await db.query('DELETE FROM game_role_options WHERE guild_id=$1', [guild.id]);
-      for (const game of desired) await db.query(`INSERT INTO game_role_options (id,guild_id,name,description,emoji,emoji_key,role_id,channel_id,created_by_bot,everyone_view_state,bot_view_state) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-        [game.id ?? crypto.randomUUID(), guild.id, game.name, game.description, game.emoji, game.emoji_key, game.role_id, game.channel_id, game.created_by_bot ?? false, game.everyone_view_state, game.bot_view_state]);
+      for (const game of desired) await db.query(`INSERT INTO game_role_options (id,guild_id,name,description,emoji,emoji_key,role_id,channel_id,created_by_bot,ownership_confirmed,everyone_view_state,bot_view_state) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+        [game.id ?? crypto.randomUUID(), guild.id, game.name, game.description, game.emoji, game.emoji_key, game.role_id, game.channel_id, game.created_by_bot ?? false, game.ownership_confirmed ?? false, game.everyone_view_state, game.bot_view_state]);
       await db.query('COMMIT');
       dbCommitted = true;
     } catch (error) { await db.query('ROLLBACK'); throw error; } finally { db.release(); }
@@ -292,8 +312,13 @@ export async function saveGameRoleConfig(pool: Pool, guild: Guild, input: { chan
     });
     const cleanupErrors: string[] = [];
     for (const item of removed) {
-      try { await restoreGameChannel(guild, item.game); }
+      const removalOwnership = removedOwnershipById.get(item.game.id);
+      const ownership = removalOwnership?.ownershipConfirmed === true
+        ? { ...item.game, created_by_bot: removalOwnership.createdByBot === true, ownership_confirmed: true }
+        : item.game;
+      try { await restoreGameChannel(guild, ownership); }
       catch (error) { cleanupErrors.push(`No se pudo restaurar/eliminar el canal ${item.game.channel_id}: ${error instanceof Error ? error.message : 'error de Discord'}`); }
+      if (!ownership.ownership_confirmed && ownership.channel_id) cleanupErrors.push(`Se conservó el canal ${ownership.channel_id}: su propiedad sigue sin confirmar.`);
       if (item.deleteRole) {
         try { await guild.roles.delete(item.game.role_id, 'Juego eliminado desde Roles de juegos'); }
         catch (error) { cleanupErrors.push(`No se pudo borrar el rol ${item.game.role_id}: ${error instanceof Error ? error.message : 'error de Discord'}`); }

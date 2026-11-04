@@ -441,8 +441,12 @@ const statusEl = query('#status');
     let loadedGameRoleGuild = '';
     let gameRoleChannelOptions: { text: Array<{ id: string; name: string; type: 'text' }>; voice: Array<{ id: string; name: string; type: 'voice' }> } = { text: [], voice: [] };
     const gameChannelSelectRoots: Root[] = [];
-    type GameRoleDraft = { id?: string; name: string; description: string; emoji: string; channel_id?: string | null; createChannel?: boolean };
+    type GameRoleDraft = {
+      id?: string; name: string; description: string; emoji: string; channel_id?: string | null; createChannel?: boolean;
+      created_by_bot?: boolean; ownership_confirmed?: boolean;
+    };
     let gameRoleDrafts: GameRoleDraft[] = [];
+    let removedGameOwnership: Array<{ id: string; ownershipConfirmed?: boolean; createdByBot?: boolean }> = [];
     function renderGameRoleDrafts(): void {
       gameChannelSelectRoots.forEach((root) => root.unmount());
       gameChannelSelectRoots.length = 0;
@@ -473,9 +477,31 @@ const statusEl = query('#status');
           const channel = channelHost.querySelector<HTMLSelectElement>('select');
           if (channel) { channel.disabled = create.checked; channel.required = !create.checked; }
         });
+        let ownershipField: HTMLLabelElement | null = null;
+        if (game.id && !game.ownership_confirmed) {
+          ownershipField = document.createElement('label'); ownershipField.className = 'game-role-ownership';
+          ownershipField.append(document.createTextNode('Propiedad del canal antiguo'));
+          const ownership = document.createElement('select'); ownership.className = 'game-role-ownership-select';
+          ownership.add(new Option('No confirmado · conservar canal al borrar', 'existing'));
+          ownership.add(new Option('Lo creó el bot · borrar canal al quitar juego', 'bot'));
+          ownership.value = game.created_by_bot ? 'bot' : 'existing';
+          ownership.dataset.confirmed = 'false';
+          ownership.addEventListener('change', () => { ownership.dataset.confirmed = 'true'; });
+          ownershipField.append(ownership);
+        }
         const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'button danger'; remove.textContent = 'Quitar';
-        remove.addEventListener('click', () => { gameRoleDrafts.splice(index, 1); renderGameRoleDrafts(); });
-        row.append(name, emoji, description, channelHost, createLabel, remove); gameRoleGames.append(row);
+        remove.addEventListener('click', () => {
+          if (game.id) {
+            const ownership = row.querySelector<HTMLSelectElement>('.game-role-ownership-select');
+            removedGameOwnership.push(ownership?.dataset.confirmed === 'true'
+              ? { id: game.id, ownershipConfirmed: true, createdByBot: ownership.value === 'bot' }
+              : { id: game.id });
+          }
+          gameRoleDrafts.splice(index, 1); renderGameRoleDrafts();
+        });
+        row.append(name, emoji, description, channelHost, createLabel, remove);
+        if (ownershipField) row.append(ownershipField);
+        gameRoleGames.append(row);
       });
       query('#game-role-add').disabled = gameRoleDrafts.length >= 20;
     }
@@ -498,6 +524,7 @@ const statusEl = query('#status');
     gameRoleGuild.addEventListener('change', async () => {
       if (gameRoleGuild.value !== loadedGameRoleGuild) selectedGameRoleCategory = '';
       loadedGameRoleGuild = gameRoleGuild.value;
+      removedGameOwnership = [];
       gameRoleChannel.disabled = true;
       gameRoleChannel.replaceChildren(new Option('Cargando configuración…', ''));
       const categorySelect = gameRoleCategory;
@@ -543,18 +570,25 @@ const statusEl = query('#status');
       const savedGames = [...gameRoleGames.querySelectorAll<HTMLElement>('.game-role-option')].map((row, index) => {
         const fields = row.querySelectorAll<HTMLInputElement>('input');
         const channel = row.querySelector<HTMLSelectElement>('select');
-        return { ...(gameRoleDrafts[index]?.id ? { id: gameRoleDrafts[index]!.id } : {}), name: fields[0]?.value ?? '', emoji: fields[1]?.value ?? '', description: fields[2]?.value ?? '', channelId: channel?.value ?? '', createChannel: fields[3]?.checked ?? false };
+        const ownerSelect = row.querySelector<HTMLSelectElement>('.game-role-ownership-select');
+        return {
+          ...(gameRoleDrafts[index]?.id ? { id: gameRoleDrafts[index]!.id } : {}),
+          ...(ownerSelect?.dataset.confirmed === 'true' ? { ownershipConfirmed: true, createdByBot: ownerSelect.value === 'bot' } : {}),
+          name: fields[0]?.value ?? '', emoji: fields[1]?.value ?? '', description: fields[2]?.value ?? '',
+          channelId: channel?.value ?? '', createChannel: fields[3]?.checked ?? false,
+        };
       });
       if (!gameRoleGuild.value || !gameRoleChannel.value) { message.textContent = 'Selecciona un servidor y un canal.'; message.className = 'message error'; return; }
       button.disabled = true; message.textContent = 'Actualizando mensaje y roles…'; message.className = 'message';
       try {
         const result = await api(`/api/bot/game-roles/${gameRoleGuild.value}`, { method: 'PUT', body: JSON.stringify({
-          channelId: gameRoleChannel.value, categoryId: query('#game-role-category').value, intro: query('#game-role-intro').value, outro: query('#game-role-outro').value, games: savedGames,
+          channelId: gameRoleChannel.value, categoryId: query('#game-role-category').value, intro: query('#game-role-intro').value, outro: query('#game-role-outro').value, games: savedGames, removedGames: removedGameOwnership,
         }) });
         message.textContent = result.warnings?.length
           ? `Guardado con avisos: ${result.warnings.join(' · ')}`
           : `Configuración guardada: ${result.games} juego(s). El mensaje ${result.messageId} conserva su ID.`;
-        message.className = 'message success';
+        message.className = result.warnings?.length ? 'message warning' : 'message success';
+        removedGameOwnership = [];
         gameRoleGuild.dispatchEvent(new Event('change'));
       } catch (error: unknown) { message.textContent = errorMessage(error); message.className = 'message error'; }
       finally { button.disabled = false; }

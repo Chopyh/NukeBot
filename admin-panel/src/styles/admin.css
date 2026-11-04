@@ -28,10 +28,12 @@
 .game-role-option input { min-width: 0; }
 .game-role-create-toggle { display: flex; align-items: center; gap: 7px; color: var(--admin-soft); font-size: 12px; white-space: nowrap; }
 .game-role-create-toggle input { width: auto; accent-color: var(--admin-accent); }
+.game-role-ownership { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(190px, 240px) minmax(0, 1fr); align-items: center; gap: 10px; color: var(--admin-soft); font-size: 12px; }
 .game-role-save { justify-content: flex-start; flex-wrap: wrap; }
 @media (max-width: 800px) {
   .game-role-option { grid-template-columns: 1fr 1fr; }
   .game-role-option input:nth-child(3), .game-role-option select { grid-column: 1 / 2; }
+  .game-role-ownership { grid-template-columns: 1fr; }
 }
 
 html {
@@ -641,6 +643,10 @@ h1 {
 
 .message.success {
   color: #c9ed83;
+}
+
+.message.warning {
+  color: #e7c279;
 }
 
 .settings-form {

@@ -189,7 +189,7 @@ export function startAdminApi(client: Client, pool: Pool): void {
         const body = await readJson(request) as Record<string, unknown>;
         const validId = (value: unknown): value is string => typeof value === 'string' && /^\d{17,20}$/.test(value);
         if (!validId(body.channelId) || (body.categoryId !== undefined && body.categoryId !== '' && !validId(body.categoryId)) || typeof body.intro !== 'string' || typeof body.outro !== 'string' ||
-            !Array.isArray(body.games) || body.games.length > 20) {
+            !Array.isArray(body.games) || body.games.length > 20 || (body.removedGames !== undefined && (!Array.isArray(body.removedGames) || body.removedGames.length > 20))) {
           sendJson(response, 400, { error: 'Completa canal, textos y una lista válida de juegos (hasta 20).' });
           return;
         }
@@ -198,11 +198,24 @@ export function startAdminApi(client: Client, pool: Pool): void {
           if (!value || typeof value !== 'object') throw new Error('Una de las entradas de juego no es válida.');
           const game = value as Record<string, unknown>;
           if ((game.id !== undefined && typeof game.id !== 'string') || (game.channelId !== undefined && typeof game.channelId !== 'string') ||
+              (game.ownershipConfirmed !== undefined && typeof game.ownershipConfirmed !== 'boolean') ||
+              (game.createdByBot !== undefined && typeof game.createdByBot !== 'boolean') ||
               (game.createChannel !== undefined && typeof game.createChannel !== 'boolean') || typeof game.name !== 'string' ||
               typeof game.description !== 'string' || typeof game.emoji !== 'string') throw new Error('Cada juego necesita nombre, descripción, emoji y canal.');
-          return { id: game.id as string | undefined, name: game.name, description: game.description, emoji: game.emoji, channelId: game.channelId as string | undefined, createChannel: game.createChannel as boolean | undefined };
+          return {
+            id: game.id as string | undefined, name: game.name, description: game.description, emoji: game.emoji,
+            channelId: game.channelId as string | undefined, createChannel: game.createChannel as boolean | undefined,
+            ownershipConfirmed: game.ownershipConfirmed as boolean | undefined, createdByBot: game.createdByBot as boolean | undefined,
+          };
         });
-        const result = await saveGameRoleConfig(pool, guild, { channelId: body.channelId, categoryId: body.categoryId as string | undefined, intro: body.intro, outro: body.outro, games });
+        const removedGames = (body.removedGames ?? []).map((value) => {
+          if (!value || typeof value !== 'object') throw new Error('Una confirmación de canal antiguo no es válida.');
+          const removed = value as Record<string, unknown>;
+          if (!validId(removed.id) || (removed.ownershipConfirmed !== undefined && typeof removed.ownershipConfirmed !== 'boolean') ||
+              (removed.createdByBot !== undefined && typeof removed.createdByBot !== 'boolean')) throw new Error('La confirmación de canal antiguo no es válida.');
+          return { id: removed.id, ownershipConfirmed: removed.ownershipConfirmed as boolean | undefined, createdByBot: removed.createdByBot as boolean | undefined };
+        });
+        const result = await saveGameRoleConfig(pool, guild, { channelId: body.channelId, categoryId: body.categoryId as string | undefined, intro: body.intro, outro: body.outro, games, removedGames });
         sendJson(response, 200, { ok: true, ...result });
       } catch (error) {
         console.error('No se pudo guardar la configuración de roles de juegos:', error);
