@@ -1,6 +1,6 @@
 import { timingSafeEqual, createHash, randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
-import { EmbedBuilder, type Client } from 'discord.js';
+import { ChannelType, EmbedBuilder, type Client } from 'discord.js';
 import type { Pool } from 'pg';
 import { readSettings, saveSettings } from './settings.js';
 import { cancelBirthdayTest, removeBirthdayRegistration, startBirthdayTest, updateBirthdayRegistration } from './birthdays.js';
@@ -155,6 +155,25 @@ export function startAdminApi(client: Client, pool: Pool): void {
     }
 
     const gameRoleGuildMatch = /^\/api\/admin\/game-roles\/(\d{17,20})$/.exec(url.pathname);
+    const gameRoleChannelCatalogMatch = /^\/api\/admin\/game-roles\/(\d{17,20})\/channels$/.exec(url.pathname);
+    if (gameRoleChannelCatalogMatch && request.method === 'GET') {
+      try {
+        const guild = await client.guilds.fetch(gameRoleChannelCatalogMatch[1]!);
+        const channels = await guild.channels.fetch();
+        const text = channels.filter((channel) => channel && [ChannelType.GuildText, ChannelType.GuildAnnouncement].includes(channel.type))
+          .map((channel) => ({ id: channel!.id, name: channel!.name, type: 'text' as const }))
+          .sort((left, right) => left.name.localeCompare(right.name, 'es'));
+        const voice = channels.filter((channel) => channel && [ChannelType.GuildVoice, ChannelType.GuildStageVoice].includes(channel.type))
+          .map((channel) => ({ id: channel!.id, name: channel!.name, type: 'voice' as const }))
+          .sort((left, right) => left.name.localeCompare(right.name, 'es'));
+        sendJson(response, 200, { text, voice });
+      } catch (error) {
+        console.error('No se pudieron consultar los canales de roles de juegos:', error);
+        sendJson(response, 503, { error: 'No se pudieron cargar los canales del servidor.' });
+      }
+      return;
+    }
+
     if (gameRoleGuildMatch && request.method === 'GET') {
       try {
         sendJson(response, 200, await readGameRoleConfig(pool, gameRoleGuildMatch[1]!));

@@ -1,7 +1,10 @@
-import { ChannelType, EmbedBuilder, Events, type Client, type Guild, type Message } from 'discord.js';
+import { ChannelType, EmbedBuilder, Events, PermissionFlagsBits, type Client, type Guild, type Message } from 'discord.js';
 import type { Pool } from 'pg';
 
-export type GameRoleOption = { id: string; name: string; description: string; emoji: string; emoji_key: string; role_id: string; channel_id: string | null };
+export type GameRoleOption = {
+  id: string; name: string; description: string; emoji: string; emoji_key: string; role_id: string;
+  channel_id: string | null; created_by_bot: boolean; everyone_view_state: number | null; bot_view_state: number | null;
+};
 type StoredOption = GameRoleOption;
 type StoredConfig = { guild_id: string; channel_id: string; message_id: string | null; intro: string; outro: string };
 
@@ -14,11 +17,15 @@ export async function ensureGameRoleTables(pool: Pool): Promise<void> {
     CREATE TABLE IF NOT EXISTS game_role_options (
       id TEXT PRIMARY KEY, guild_id TEXT NOT NULL REFERENCES game_role_configs(guild_id) ON DELETE CASCADE,
       name TEXT NOT NULL, description TEXT NOT NULL, emoji TEXT NOT NULL, emoji_key TEXT NOT NULL,
-      role_id TEXT NOT NULL, channel_id TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      role_id TEXT NOT NULL, channel_id TEXT, created_by_bot BOOLEAN NOT NULL DEFAULT FALSE,
+      everyone_view_state SMALLINT, bot_view_state SMALLINT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       UNIQUE(guild_id, emoji_key), UNIQUE(guild_id, name)
     )
   `);
   await pool.query('ALTER TABLE game_role_options ADD COLUMN IF NOT EXISTS channel_id TEXT');
+  await pool.query('ALTER TABLE game_role_options ADD COLUMN IF NOT EXISTS created_by_bot BOOLEAN NOT NULL DEFAULT FALSE');
+  await pool.query('ALTER TABLE game_role_options ADD COLUMN IF NOT EXISTS everyone_view_state SMALLINT');
+  await pool.query('ALTER TABLE game_role_options ADD COLUMN IF NOT EXISTS bot_view_state SMALLINT');
 }
 
 function keyForReaction(reaction: { emoji: { id: string | null; name: string | null } }): string | null {
@@ -58,12 +65,15 @@ export function registerGameRoleListeners(client: Client, pool: Pool): void {
 export async function readGameRoleConfig(pool: Pool, guildId: string): Promise<{ config: StoredConfig | null; games: StoredOption[] }> {
   const [config, games] = await Promise.all([
     pool.query<StoredConfig>('SELECT guild_id, channel_id, message_id, intro, outro FROM game_role_configs WHERE guild_id = $1', [guildId]),
-    pool.query<StoredOption>('SELECT id, name, description, emoji, emoji_key, role_id, channel_id FROM game_role_options WHERE guild_id = $1 ORDER BY created_at, id', [guildId]),
+    pool.query<StoredOption>('SELECT id, name, description, emoji, emoji_key, role_id, channel_id, created_by_bot, everyone_view_state, bot_view_state FROM game_role_options WHERE guild_id = $1 ORDER BY created_at, id', [guildId]),
   ]);
   return { config: config.rows[0] ?? null, games: games.rows };
 }
 
-type DesiredGame = { id?: string; name: string; description: string; emoji: string; channelId?: string; createChannel?: boolean };
+type DesiredGame = {
+  id?: string; name: string; description: string; emoji: string; channelId?: string; createChannel?: boolean;
+  channel_id?: string | null; created_by_bot?: boolean; everyone_view_state?: number | null; bot_view_state?: number | null;
+};
 function emojiParts(input: string): { display: string; key: string; customId?: string } {
   const display = input.trim();
   const custom = display.match(/^<(a?):([A-Za-z0-9_]{2,32}):(\d{17,20})>$/);
@@ -80,13 +90,59 @@ function gameEmbed(intro: string, outro: string, games: Array<DesiredGame & { em
   return new EmbedBuilder().setColor(0x5865f2).setDescription(description);
 }
 
+function viewState(channel: any, targetId: string): number {
+  const overwrite = channel.permissionOverwrites.cache.get(targetId);
+  if (!overwrite) return 0;
+  if (overwrite.allow.has(PermissionFlagsBits.ViewChannel)) return 1;
+  if (overwrite.deny.has(PermissionFlagsBits.ViewChannel)) return -1;
+  return 0;
+}
+
+async function setViewState(channel: any, targetId: string, state: number): Promise<void> {
+  await channel.permissionOverwrites.edit(targetId, {
+    ViewChannel: state === 1 ? true : state === -1 ? false : null,
+  }, 'Restauración de permisos de Roles de juegos');
+}
+
+function channelNameForGame(name: string, emojiDisplay: string): string {
+  const custom = emojiDisplay.match(/^<a?:([A-Za-z0-9_]{2,32}):\d{17,20}>$/);
+  const emojiLabel = custom?.[1] ?? emojiDisplay;
+  const emojiPart = emojiLabel.toLocaleLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\p{L}\p{N}\p{Extended_Pictographic}\p{Regional_Indicator}-]+/gu, '-')
+    .replace(/-+/g, '-').replace(/^-|-$/g, '');
+  const gamePart = name.toLocaleLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\p{L}\p{N}-]+/gu, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+  return `${emojiPart || 'game'}-${gamePart || 'juego'}`.slice(0, 100).replace(/-$/g, '');
+}
+
+async function applyGameChannelPrivacy(channel: any, guild: Guild, roleId: string, botMemberId: string): Promise<void> {
+  await channel.permissionOverwrites.edit(guild.roles.everyone, { ViewChannel: false }, 'Canal privado de un juego');
+  await channel.permissionOverwrites.edit(roleId, { ViewChannel: true }, 'Acceso al canal para el rol de juego');
+  await channel.permissionOverwrites.edit(botMemberId, { ViewChannel: true }, 'Permiso del bot para administrar el canal privado');
+}
+
+async function restoreGameChannel(guild: Guild, game: StoredOption): Promise<void> {
+  if (!game.channel_id || game.created_by_bot) {
+    if (game.created_by_bot && game.channel_id) await guild.channels.delete(game.channel_id, 'Canal creado para un juego eliminado');
+    return;
+  }
+  // Older rows predate privacy snapshots; leave their user-selected channels untouched.
+  if (game.everyone_view_state === null || game.bot_view_state === null) return;
+  const channel = await guild.channels.fetch(game.channel_id);
+  if (!channel || !('permissionOverwrites' in channel)) return;
+  await channel.permissionOverwrites.delete(game.role_id, 'Retirada del acceso del juego eliminado');
+  await setViewState(channel, guild.roles.everyone.id, game.everyone_view_state ?? 0);
+  const botId = guild.client.user.id;
+  await setViewState(channel, botId, game.bot_view_state ?? 0);
+}
+
 async function getTextChannel(guild: Guild, channelId: string): Promise<any> {
   const channel = await guild.channels.fetch(channelId);
   if (!channel?.isTextBased() || !('send' in channel)) throw new Error('Selecciona un canal de texto válido.');
   return channel;
 }
 
-export async function saveGameRoleConfig(pool: Pool, guild: Guild, input: { channelId: string; categoryId?: string; intro: string; outro: string; games: DesiredGame[] }): Promise<{ messageId: string; games: number }> {
+export async function saveGameRoleConfig(pool: Pool, guild: Guild, input: { channelId: string; categoryId?: string; intro: string; outro: string; games: DesiredGame[] }): Promise<{ messageId: string; games: number; warnings: string[] }> {
   if (input.games.length > 20) throw new Error('Puedes configurar hasta 20 juegos.');
   if (input.intro.length > 1500 || input.outro.length > 1500) throw new Error('Los textos de inicio y final admiten hasta 1500 caracteres cada uno.');
   const emojiSeen = new Set<string>(); const nameSeen = new Set<string>(); const ids = new Set<string>();
@@ -94,6 +150,7 @@ export async function saveGameRoleConfig(pool: Pool, guild: Guild, input: { chan
   if (current.config && current.config.channel_id !== input.channelId) throw new Error('El canal queda fijado después de crear el mensaje para conservar su ID.');
   await guild.emojis.fetch().catch(() => undefined);
   const oldById = new Map(current.games.map((game) => [game.id, game]));
+  const channelIds = new Set<string>();
   const desired = input.games.map((game) => {
     const name = game.name.trim(); const description = game.description.trim(); const emoji = emojiParts(game.emoji);
     if (!name || name.length > 80 || description.length > 250) throw new Error('Cada juego necesita un nombre (máx. 80) y una descripción de hasta 250 caracteres.');
@@ -101,23 +158,42 @@ export async function saveGameRoleConfig(pool: Pool, guild: Guild, input: { chan
     if (game.id && (!oldById.has(game.id) || ids.has(game.id))) throw new Error('Una de las entradas de juego no pertenece a esta configuración.');
     emojiSeen.add(emoji.key); nameSeen.add(name.toLocaleLowerCase()); if (game.id) ids.add(game.id);
     if (emoji.customId && !guild.emojis.cache.get(emoji.customId)?.available) throw new Error('Uno de los emojis personalizados no está disponible en este servidor.');
-    if (!game.createChannel && !/^\d{17,20}$/.test(game.channelId ?? oldById.get(game.id ?? '')?.channel_id ?? '')) throw new Error(`Selecciona un canal para «${name}» o activa la creación automática.`);
-    return { id: game.id, name, description, emoji: emoji.display, emoji_key: emoji.key, role_id: game.id ? oldById.get(game.id)!.role_id : '', channel_id: game.channelId ?? oldById.get(game.id ?? '')?.channel_id ?? null, createChannel: game.createChannel === true, customId: emoji.customId };
+    const previous = game.id ? oldById.get(game.id) : undefined;
+    const channelId = game.createChannel ? null : (game.channelId || previous?.channel_id || null);
+    if (!game.createChannel && !/^\d{17,20}$/.test(channelId ?? '')) throw new Error(`Selecciona un canal para «${name}» o activa la creación automática.`);
+    if (channelId && (channelIds.has(channelId) || channelId === input.channelId)) throw new Error('Cada juego necesita un canal privado distinto del mensaje central.');
+    if (channelId) channelIds.add(channelId);
+    const sameChannel = Boolean(previous && previous.channel_id === channelId);
+    return {
+      id: game.id, name, description, emoji: emoji.display, emoji_key: emoji.key,
+      role_id: previous?.role_id ?? '', channel_id: channelId, createChannel: game.createChannel === true,
+      created_by_bot: game.createChannel === true || (sameChannel && previous?.created_by_bot === true),
+      everyone_view_state: sameChannel ? previous?.everyone_view_state ?? 0 : null,
+      bot_view_state: sameChannel ? previous?.bot_view_state ?? 0 : null,
+      customId: emoji.customId,
+    };
   });
   gameEmbed(input.intro, input.outro, desired);
   const botMember = guild.members.me ?? await guild.members.fetchMe();
   if (!botMember.permissions.has('ManageRoles')) throw new Error('El bot necesita el permiso Gestionar roles.');
   const channel = await getTextChannel(guild, input.channelId);
-  if (desired.some((game) => game.createChannel)) {
-    if (!botMember.permissions.has('ManageChannels')) throw new Error('El bot necesita el permiso Gestionar canales para crear canales de juegos.');
-    if (input.categoryId) {
-      const category = await guild.channels.fetch(input.categoryId);
-      if (!category || category.type !== ChannelType.GuildCategory) throw new Error('La categoría seleccionada no es válida en este servidor.');
-    }
+  if (desired.length > 0 || current.games.some((game) => !desired.some((next) => next.id === game.id && next.channel_id === game.channel_id))) {
+    if (!botMember.permissions.has('ManageChannels')) throw new Error('El bot necesita el permiso Gestionar canales para privatizar, restaurar o borrar canales de juegos.');
   }
+  if (input.categoryId && desired.some((game) => game.createChannel)) {
+    const category = await guild.channels.fetch(input.categoryId);
+    if (!category || category.type !== ChannelType.GuildCategory) throw new Error('La categoría seleccionada no es válida en este servidor.');
+  }
+  const resolvedChannels = new Map<string, any>();
   for (const game of desired) if (!game.createChannel && game.channel_id) {
     const gameChannel = await guild.channels.fetch(game.channel_id);
     if (!gameChannel || !gameChannel.isTextBased() || !('messages' in gameChannel) || gameChannel.isThread()) throw new Error(`El canal de «${game.name}» no es un canal de texto válido.`);
+    resolvedChannels.set(game.id ?? game.name, gameChannel);
+    const previous = game.id ? oldById.get(game.id) : undefined;
+    if (!previous || previous.channel_id !== game.channel_id || previous.everyone_view_state === null || previous.bot_view_state === null) {
+      game.everyone_view_state = viewState(gameChannel, guild.roles.everyone.id);
+      game.bot_view_state = viewState(gameChannel, botMember.id);
+    }
   }
   const desiredRoleIds = new Set(desired.flatMap((game) => game.role_id ? [game.role_id] : []));
   for (const old of current.games) if (!desiredRoleIds.has(old.role_id)) {
@@ -132,23 +208,49 @@ export async function saveGameRoleConfig(pool: Pool, guild: Guild, input: { chan
   let createdMessage = false;
   let dbCommitted = false;
   const removedReactions: string[] = [];
+  const createdChannels: string[] = [];
+  const renamedChannels: Array<{ channel: any; name: string }> = [];
+  const newlyPrivatized: Array<{ channel: any; roleId: string; everyoneState: number; botState: number }> = [];
   try {
     for (const game of desired) {
-      if (game.createChannel) {
-        const slug = game.name.toLocaleLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9-]+/g, '-').replace(/^-|-$/g, '').slice(0, 90) || 'juego';
-        const created = await guild.channels.create({ name: `juego-${slug}`.slice(0, 100), type: ChannelType.GuildText, ...(input.categoryId ? { parent: input.categoryId } : {}), reason: 'Canal de juego creado desde Roles de juegos' });
-        game.channel_id = created.id;
-      }
+      // Create the role first so a new private channel can grant it access immediately.
       if (!game.role_id) {
-        const role = await guild.roles.create({ name: `Juego: ${game.name}`.slice(0, 100), reason: 'Rol creado para la sección Roles de juegos' });
+        const role = await guild.roles.create({ name: game.name.slice(0, 100), reason: 'Rol creado para la sección Roles de juegos' });
         game.role_id = role.id; createdRoles.push(role.id);
       } else {
         const role = await guild.roles.fetch(game.role_id);
         if (!role?.editable) throw new Error(`El bot no puede gestionar el rol de «${game.name}».`);
-        if (role.name !== `Juego: ${game.name}`) {
+        if (role.name !== game.name) {
           renamedRoles.push({ id: role.id, name: role.name });
-          await role.setName(`Juego: ${game.name}`.slice(0, 100), 'Nombre actualizado desde Roles de juegos');
+          await role.setName(game.name.slice(0, 100), 'Nombre actualizado desde Roles de juegos');
         }
+      }
+      if (game.createChannel) {
+        const channelName = channelNameForGame(game.name, game.emoji);
+        const created = await guild.channels.create({
+          name: channelName, type: ChannelType.GuildText,
+          ...(input.categoryId ? { parent: input.categoryId } : {}),
+          permissionOverwrites: [
+            { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+            { id: game.role_id, allow: [PermissionFlagsBits.ViewChannel] },
+            { id: botMember.id, allow: [PermissionFlagsBits.ViewChannel] },
+          ],
+          reason: 'Canal privado de juego creado desde Roles de juegos',
+        });
+        game.channel_id = created.id; game.created_by_bot = true;
+        game.everyone_view_state = 0; game.bot_view_state = 0;
+        createdChannels.push(created.id);
+      } else if (game.channel_id) {
+        const gameChannel = resolvedChannels.get(game.id ?? game.name);
+        if (!gameChannel) throw new Error(`No se pudo cargar el canal vinculado a «${game.name}».`);
+        if (game.created_by_bot && gameChannel.name !== channelNameForGame(game.name, game.emoji)) {
+          renamedChannels.push({ channel: gameChannel, name: gameChannel.name });
+          await gameChannel.setName(channelNameForGame(game.name, game.emoji), 'Nombre actualizado desde Roles de juegos');
+        }
+        if (!game.id || oldById.get(game.id)?.channel_id !== game.channel_id) {
+          newlyPrivatized.push({ channel: gameChannel, roleId: game.role_id, everyoneState: game.everyone_view_state ?? 0, botState: game.bot_view_state ?? 0 });
+        }
+        await applyGameChannelPrivacy(gameChannel, guild, game.role_id, botMember.id);
       }
     }
 
@@ -177,15 +279,27 @@ export async function saveGameRoleConfig(pool: Pool, guild: Guild, input: { chan
         ON CONFLICT (guild_id) DO UPDATE SET channel_id=EXCLUDED.channel_id, message_id=EXCLUDED.message_id, intro=EXCLUDED.intro, outro=EXCLUDED.outro, updated_at=NOW()`,
       [guild.id, input.channelId, message.id, input.intro.trim(), input.outro.trim()]);
       await db.query('DELETE FROM game_role_options WHERE guild_id=$1', [guild.id]);
-      for (const game of desired) await db.query(`INSERT INTO game_role_options (id,guild_id,name,description,emoji,emoji_key,role_id,channel_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-        [game.id ?? crypto.randomUUID(), guild.id, game.name, game.description, game.emoji, game.emoji_key, game.role_id, game.channel_id]);
+      for (const game of desired) await db.query(`INSERT INTO game_role_options (id,guild_id,name,description,emoji,emoji_key,role_id,channel_id,created_by_bot,everyone_view_state,bot_view_state) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+        [game.id ?? crypto.randomUUID(), guild.id, game.name, game.description, game.emoji, game.emoji_key, game.role_id, game.channel_id, game.created_by_bot ?? false, game.everyone_view_state, game.bot_view_state]);
       await db.query('COMMIT');
       dbCommitted = true;
     } catch (error) { await db.query('ROLLBACK'); throw error; } finally { db.release(); }
 
-    const keepRoles = new Set(desired.map((game) => game.role_id));
-    for (const old of current.games) if (!keepRoles.has(old.role_id)) await guild.roles.delete(old.role_id, 'Juego eliminado desde Roles de juegos').catch((error) => console.error(`No se pudo borrar el rol ${old.role_id}:`, error));
-    return { messageId: message.id, games: desired.length };
+    const nextById = new Map(desired.filter((game) => game.id).map((game) => [game.id!, game]));
+    const removed = current.games.flatMap((old) => {
+      const next = nextById.get(old.id);
+      return !next || next.channel_id !== old.channel_id ? [{ game: old, deleteRole: !next }] : [];
+    });
+    const cleanupErrors: string[] = [];
+    for (const item of removed) {
+      try { await restoreGameChannel(guild, item.game); }
+      catch (error) { cleanupErrors.push(`No se pudo restaurar/eliminar el canal ${item.game.channel_id}: ${error instanceof Error ? error.message : 'error de Discord'}`); }
+      if (item.deleteRole) {
+        try { await guild.roles.delete(item.game.role_id, 'Juego eliminado desde Roles de juegos'); }
+        catch (error) { cleanupErrors.push(`No se pudo borrar el rol ${item.game.role_id}: ${error instanceof Error ? error.message : 'error de Discord'}`); }
+      }
+    }
+    return { messageId: message.id, games: desired.length, warnings: cleanupErrors };
   } catch (error) {
     if (!dbCommitted && changedMessage) {
       if (createdMessage) await changedMessage.delete().catch(() => undefined);
@@ -194,6 +308,13 @@ export async function saveGameRoleConfig(pool: Pool, guild: Guild, input: { chan
       for (const emoji of removedReactions) await changedMessage.react(emoji).catch(() => undefined);
     }
     if (!dbCommitted) {
+      for (const item of newlyPrivatized) {
+        await item.channel.permissionOverwrites.delete(item.roleId).catch(() => undefined);
+        await setViewState(item.channel, guild.roles.everyone.id, item.everyoneState).catch(() => undefined);
+        await setViewState(item.channel, botMember.id, item.botState).catch(() => undefined);
+      }
+      for (const item of renamedChannels) await item.channel.setName(item.name, 'Reversión de configuración incompleta').catch(() => undefined);
+      for (const channelId of createdChannels) await guild.channels.delete(channelId, 'Reversión de configuración de juego incompleta').catch(() => undefined);
       for (const roleId of createdRoles) await guild.roles.delete(roleId, 'Reversión de configuración incompleta').catch(() => undefined);
       for (const role of renamedRoles) {
         const target = await guild.roles.fetch(role.id).catch(() => null);

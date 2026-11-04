@@ -283,6 +283,7 @@ const server = createServer(async (request, response) => {
     || /^\/guilds\/\d{17,20}\/emojis$/.test(botProxyPath)
     || botProxyPath === '/reaction-roles'
     || /^\/game-roles\/\d{17,20}$/.test(botProxyPath)
+    || /^\/game-roles\/\d{17,20}\/channels$/.test(botProxyPath)
     || /^\/reaction-roles\/\d{17,20}\/\d{17,20}$/.test(botProxyPath)
     || botProxyPath === '/birthdays'
     || /^\/guilds\/\d{17,20}\/birthdays\/\d{17,20}$/.test(botProxyPath)

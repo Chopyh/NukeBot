@@ -1,3 +1,5 @@
+import { createSelect } from '../components/ui/select';
+
 interface PanelElement extends HTMLElement {
   value: string;
   disabled: boolean;
@@ -432,7 +434,10 @@ const statusEl = query('#status');
     const gameRoleGuild = query('#game-role-guild');
     const gameRoleChannel = query('#game-role-channel');
     const gameRoleGames = query('#game-role-games');
-    let gameRoleChannelOptions: Array<{ id: string; name: string }> = [];
+    const gameRoleCategory = query('#game-role-category');
+    let selectedGameRoleCategory = '';
+    let loadedGameRoleGuild = '';
+    let gameRoleChannelOptions: { text: Array<{ id: string; name: string; type: 'text' }>; voice: Array<{ id: string; name: string; type: 'voice' }> } = { text: [], voice: [] };
     type GameRoleDraft = { id?: string; name: string; description: string; emoji: string; channel_id?: string | null; createChannel?: boolean };
     let gameRoleDrafts: GameRoleDraft[] = [];
     function renderGameRoleDrafts(): void {
@@ -442,9 +447,16 @@ const statusEl = query('#status');
         const name = document.createElement('input'); name.required = true; name.maxLength = 80; name.placeholder = 'Nombre del juego'; name.value = game.name; name.setAttribute('aria-label', 'Nombre del juego');
         const emoji = document.createElement('input'); emoji.required = true; emoji.maxLength = 64; emoji.placeholder = '🎮 o <:nombre:id>'; emoji.value = game.emoji; emoji.setAttribute('aria-label', 'Emoji del juego');
         const description = document.createElement('input'); description.maxLength = 250; description.placeholder = 'Descripción breve'; description.value = game.description; description.setAttribute('aria-label', 'Descripción del juego');
-        const channel = document.createElement('select'); channel.required = true; channel.setAttribute('aria-label', 'Canal vinculado al juego');
+        const channel = createSelect('game-channel-select'); channel.required = true; channel.setAttribute('aria-label', 'Canal vinculado al juego');
         channel.add(new Option('Selecciona un canal', ''));
-        for (const option of gameRoleChannelOptions) channel.add(new Option(`# ${option.name}`, option.id));
+        const textGroup = document.createElement('optgroup'); textGroup.label = 'Canales de texto';
+        for (const option of gameRoleChannelOptions.text) textGroup.append(new Option(`# ${option.name}`, option.id));
+        channel.append(textGroup);
+        const voiceGroup = document.createElement('optgroup'); voiceGroup.label = 'Canales de voz (no disponibles)';
+        for (const option of gameRoleChannelOptions.voice) {
+          const voice = new Option(`🔊 ${option.name}`, option.id); voice.disabled = true; voiceGroup.append(voice);
+        }
+        channel.append(voiceGroup);
         channel.value = game.channel_id ?? '';
         const createLabel = document.createElement('label'); createLabel.className = 'game-role-create-toggle';
         const create = document.createElement('input'); create.type = 'checkbox'; create.checked = game.createChannel ?? false;
@@ -457,7 +469,15 @@ const statusEl = query('#status');
       });
       query('#game-role-add').disabled = gameRoleDrafts.length >= 20;
     }
-    query('#game-role-add').addEventListener('click', () => { if (gameRoleDrafts.length < 20) { gameRoleDrafts.push({ name: '', description: '', emoji: '' }); renderGameRoleDrafts(); } });
+    query('#game-role-add').addEventListener('click', () => {
+      if (gameRoleDrafts.length < 20) {
+        const selectedCategory = gameRoleCategory.value;
+        gameRoleDrafts.push({ name: '', description: '', emoji: '' });
+        renderGameRoleDrafts();
+        gameRoleCategory.value = selectedCategory;
+      }
+    });
+    gameRoleCategory.addEventListener('change', () => { selectedGameRoleCategory = gameRoleCategory.value; });
     async function loadGameRoleGuilds(): Promise<void> {
       try {
         const guilds = await api('/api/bot/guilds');
@@ -466,9 +486,11 @@ const statusEl = query('#status');
       } catch (error: unknown) { gameRoleGuild.replaceChildren(new Option(errorMessage(error), '')); }
     }
     gameRoleGuild.addEventListener('change', async () => {
+      if (gameRoleGuild.value !== loadedGameRoleGuild) selectedGameRoleCategory = '';
+      loadedGameRoleGuild = gameRoleGuild.value;
       gameRoleChannel.disabled = true;
       gameRoleChannel.replaceChildren(new Option('Cargando configuración…', ''));
-      const categorySelect = query('#game-role-category');
+      const categorySelect = gameRoleCategory;
       categorySelect.disabled = true;
       categorySelect.replaceChildren(new Option('Cargando categorías…', ''));
       gameRoleDrafts = []; renderGameRoleDrafts();
@@ -481,9 +503,11 @@ const statusEl = query('#status');
           api(`/api/bot/guilds/${gameRoleGuild.value}/categories`),
           api(`/api/bot/game-roles/${gameRoleGuild.value}`),
         ]);
-        gameRoleChannelOptions = channels;
+        gameRoleChannelOptions = await api(`/api/bot/game-roles/${gameRoleGuild.value}/channels`);
         categorySelect.replaceChildren(new Option('Sin categoría', ''));
         for (const category of categories) categorySelect.add(new Option(category.name, category.id));
+        if (categories.some((category: { id: string }) => category.id === selectedGameRoleCategory)) categorySelect.value = selectedGameRoleCategory;
+        selectedGameRoleCategory = categorySelect.value;
         categorySelect.disabled = false;
         gameRoleChannel.replaceChildren(new Option('Selecciona un canal', ''));
         for (const channel of channels) gameRoleChannel.add(new Option(`# ${channel.name}`, channel.id));
@@ -517,7 +541,9 @@ const statusEl = query('#status');
         const result = await api(`/api/bot/game-roles/${gameRoleGuild.value}`, { method: 'PUT', body: JSON.stringify({
           channelId: gameRoleChannel.value, categoryId: query('#game-role-category').value, intro: query('#game-role-intro').value, outro: query('#game-role-outro').value, games: savedGames,
         }) });
-        message.textContent = `Configuración guardada: ${result.games} juego(s). El mensaje ${result.messageId} conserva su ID.`;
+        message.textContent = result.warnings?.length
+          ? `Guardado con avisos: ${result.warnings.join(' · ')}`
+          : `Configuración guardada: ${result.games} juego(s). El mensaje ${result.messageId} conserva su ID.`;
         message.className = 'message success';
         gameRoleGuild.dispatchEvent(new Event('change'));
       } catch (error: unknown) { message.textContent = errorMessage(error); message.className = 'message error'; }
